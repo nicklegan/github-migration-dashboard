@@ -1,0 +1,93 @@
+{
+  "generatedAt": "2026-09-02T22:19:55.115Z",
+  "serverUrl": "https://nicklegan.ghe.com",
+  "organizations": [
+    "gl2gh-migrations",
+    "gl2gh-migrations-beta"
+  ],
+  "kpis": {
+    "total": 12,
+    "succeeded": 12,
+    "failed": 0,
+    "ongoing": 0,
+    "withWarnings": 12,
+    "successRate": 1,
+    "avgWarnings": 1,
+    "avgDurationMinutes": 1.8333333333333333,
+    "avgRepoSizeMB": 2.3685709635416665
+  },
+  "workflows": {
+    "succeeded": 6,
+    "failing": 8,
+    "idle": 14,
+    "failingRepos": 4,
+    "total": 28,
+    "successRate": 0.42857142857142855
+  },
+  "states": [
+    {
+      "state": "SUCCEEDED",
+      "count": 12
+    }
+  ],
+  "teams": [
+    {
+      "key": "Identity",
+      "succeeded": 3,
+      "failed": 0,
+      "other": 0,
+      "workflows": {
+        "succeeded": 2,
+        "failing": 2,
+        "idle": 5
+      }
+    },
+    {
+      "key": "Payments",
+      "succeeded": 4,
+      "failed": 0,
+      "other": 0,
+      "workflows": {
+        "succeeded": 2,
+        "failing": 4,
+        "idle": 0
+      }
+    },
+    {
+      "key": "Mobile",
+      "succeeded": 2,
+      "failed": 0,
+      "other": 0,
+      "workflows": {
+        "succeeded": 0,
+        "failing": 0,
+        "idle": 3
+      }
+    },
+    {
+      "key": "Data",
+      "succeeded": 3,
+      "failed": 0,
+      "other": 0,
+      "workflows": {
+        "succeeded": 2,
+        "failing": 2,
+        "idle": 6
+      }
+    }
+  ],
+  "orgs": [
+    {
+      "key": "gl2gh-migrations-beta",
+      "succeeded": 12,
+      "failed": 0,
+      "other": 0,
+      "workflows": {
+        "succeeded": 6,
+        "failing": 8,
+        "idle": 14
+      }
+    }
+  ],
+  "enterprise": "nicklegan"
+}

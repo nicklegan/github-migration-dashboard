@@ -1,0 +1,44 @@
+{
+  "name": "github-migration-dashboard",
+  "version": "1.0.0",
+  "description": "Tracks repository and Actions workflow migrations across your enterprise, and builds a GitHub Pages dashboard from them.",
+  "author": {
+    "name": "GitHub Expert Services",
+    "email": "services@github.com",
+    "url": "https://services.github.com"
+  },
+  "contributors": [
+    {
+      "name": "Nick Nagel",
+      "email": "nicklegan@github.com",
+      "url": "https://github.com/nicklegan"
+    }
+  ],
+  "main": "dist/index.js",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nicklegan/github-migration-dashboard.git"
+  },
+  "engines": {
+    "node": ">=24",
+    "npm": ">=11"
+  },
+  "scripts": {
+    "build": "npm run build:action && npm run build:site",
+    "build:action": "esbuild src/index.js --bundle --platform=node --format=esm --target=node24 --outfile=dist/index.js --minify --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\"",
+    "build:site": "npm --prefix site ci && npm --prefix site run build && rm -rf dist/web && cp -R site/dist dist/web",
+    "test": "node --test"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@actions/core": "^3.0.1",
+    "@actions/exec": "^3.0.0",
+    "@actions/github": "^9.1.1",
+    "@octokit/plugin-retry": "^8.1.1",
+    "@octokit/plugin-throttling": "^11.0.5"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

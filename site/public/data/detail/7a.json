@@ -1,0 +1,1 @@
+{"gl2gh-migrations-beta/gl-importer-labs": {"attempts": [{"id": "RM_kgDaACRkYThlZjg1Yy1kM2IyLTRiYjgtYjk0MS0xZTI1ZDg1YjcxMWE", "state": "SUCCEEDED", "createdAt": "2026-06-01T12:53:46Z", "durationMinutes": 2, "warningsCount": 1, "repoSizeMB": 26.3837890625, "sourceUrl": "https://gitlab.dev/gl/importer-labs", "sourceType": "GitLab Source", "team": "Mobile"}], "workflows": []}}

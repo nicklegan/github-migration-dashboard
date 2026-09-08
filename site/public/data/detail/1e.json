@@ -1,0 +1,1 @@
+{"gl2gh-migrations-beta/gl-widgets": {"attempts": [{"id": "RM_kgDaACQ5YTVjNGY4OS1jZWI5LTQxMDUtOWE0Yi1hNDhjZDIxYmZmNmQ", "state": "SUCCEEDED", "createdAt": "2026-06-01T12:47:40Z", "durationMinutes": 3, "warningsCount": 1, "repoSizeMB": 0.0029296875, "sourceUrl": "https://gitlab.dev/gl/widgets", "sourceType": "GitLab Source", "team": "Identity"}], "workflows": []}}

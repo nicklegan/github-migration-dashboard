@@ -1,0 +1,96 @@
+name: GitHub migration dashboard
+description: Tracks repository and Actions workflow migrations across your enterprise, and builds a GitHub Pages dashboard from them.
+author: GitHub Expert Services
+
+branding:
+  icon: bar-chart-2
+  color: purple
+
+inputs:
+  token:
+    description: Classic PAT owned by an enterprise owner. Reads enterprise.organizations, organization.repositoryMigrations, the audit log, and Actions runs. The default GITHUB_TOKEN cannot read these.
+    required: true
+  enterprise:
+    description: Enterprise slug to report on, as it appears in github.com/enterprises/<slug>. Autosensed from a *.ghe.com tenant host, or from the enterprises the token administers, preferring the one that owns the workflow's organization. Only needed to disambiguate.
+    required: false
+  data-dir:
+    description: Directory holding the sharded data store (state.json, migrations/, repos/, summary.json, rows/, detail/), relative to the workspace.
+    required: false
+    default: data
+  api-url:
+    description: REST API base URL to query. Defaults to the runner's GITHUB_API_URL so it autosenses github.com vs ghe.com. Override only when the target organizations live on a different instance than the runner.
+    required: false
+  team-property:
+    description: Name of the organization custom property that holds the owning team. Its name is what the dashboard prints as a heading, so 'business_unit' reads as 'Business unit'.
+    required: false
+    default: team
+  inventory-ttl-days:
+    description: How often to re-list a repository's workflows, so workflows added after migration are found even if they never run. 0 inventories each repository only once.
+    required: false
+    default: '7'
+  attribute-ttl-days:
+    description: How often to refresh a repository's team property and size while it is still onboarding. Only stale repositories are fetched, batched about 100 per request.
+    required: false
+    default: '1'
+  settled-attribute-ttl-days:
+    description: How often to refresh team and size once a repository is past its onboarding window. Ownership can change long after a migration, so this keeps the team identifier current. 0 freezes attributes at window close, which also stops confirming the repository is still there.
+    required: false
+    default: '7'
+  onboarding-window-days:
+    description: How long after a successful migration a newly added workflow still counts as part of that migration. Workflows first seen after the window are reported separately and excluded from migration metrics; re-listing also stops, which keeps the per-run cost proportional to the migration rate rather than the size of the estate. 0 disables the window, and with it that cost ceiling.
+    required: false
+    default: '60'
+  row-chunk-size:
+    description: Repositories per dashboard row chunk. Chunks are grouped by migration month, so this caps the size of each part rather than slicing one long list. Smaller chunks stream in sooner on very large estates.
+    required: false
+    default: '2000'
+  detail-buckets:
+    description: How many files the per-repository detail (migration attempts and workflow list) is spread across. Expanding a row downloads one whole bucket, so raise this on a large estate to keep each download small. Rebuilt every run, so it is safe to change.
+    required: false
+    default: '256'
+  live-migrations:
+    description: Also read Enterprise Live Migrations (GHES to GitHub Enterprise Cloud with data residency) from the destination tenant, so they appear alongside the GraphQL repository migrations. Reading the destination side means the same token covers both. Skipped automatically when the tenant does not expose the API.
+    required: false
+    default: 'true'
+  rest-budget:
+    description: Maximum REST calls per run. Spent almost entirely on inventorying newly migrated repositories. 0 means unlimited.
+    required: false
+    default: '4000'
+  graphql-budget:
+    description: Maximum GraphQL requests per run (each costs one rate-limit point). 0 means unlimited.
+    required: false
+    default: '4000'
+  audit-budget:
+    description: Maximum audit-log requests per run. The enterprise audit log is read once per run for every organization and maintains workflow status. 0 means unlimited.
+    required: false
+    default: '1500'
+  output-path:
+    description: Directory the action writes the ready-to-deploy dashboard into (prebuilt web assets plus the fetched data). Upload this to GitHub Pages.
+    required: false
+    default: _site
+  commit-data:
+    description: Commit and push the refreshed data store when it changes, so history persists between runs. Requires an actions/checkout step and contents:write permission.
+    required: false
+    default: 'true'
+  commit-message:
+    description: Commit message used when the data store is committed.
+    required: false
+    default: 'chore: update migration data [skip ci]'
+
+outputs:
+  changed:
+    description: "'true' when the data store was updated by this run."
+  committed:
+    description: "'true' when the updated data store was committed and pushed."
+  total:
+    description: Total number of migrated repositories in the data store after the run.
+  truncated:
+    description: "'true' when a call budget was reached and the next run must resume."
+  skipped-organizations:
+    description: Number of organizations that could not be synced this run, for example because the token lacks access. Their names and the reason are listed in the run summary.
+  site-path:
+    description: Path to the assembled dashboard directory (equals output-path).
+
+runs:
+  using: node24
+  main: dist/index.js

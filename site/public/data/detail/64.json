@@ -1,0 +1,1 @@
+{"gl2gh-migrations-beta/gl-github-app-repos": {"attempts": [{"id": "RM_kgDaACQ3YmI1YmJkZC05OWMxLTQwODctYWQ2Yi05MjI2ZjliM2M5MmM", "state": "SUCCEEDED", "createdAt": "2026-06-01T13:19:05Z", "durationMinutes": 1, "warningsCount": 1, "repoSizeMB": 0, "sourceUrl": "https://gitlab.dev/gl/github-app-repos", "sourceType": "GitLab Source", "team": "Payments"}], "workflows": []}}

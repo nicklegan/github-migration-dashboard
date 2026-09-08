@@ -1,0 +1,22 @@
+{
+  "name": "github-migration-dashboard-site",
+  "version": "1.0.0",
+  "description": "GitHub Pages dashboard that visualizes the migration status JSON produced by the action.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "recharts": "^3.2.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.4",
+    "vite": "^7.1.7"
+  }
+}

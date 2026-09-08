@@ -1,0 +1,8 @@
+node_modules/
+*.log
+tmp/
+site/dist/
+_site/
+.github/copilot-instructions.md
+docs/action-static-files.md
+dist/web/data/
