@@ -1,4 +1,5 @@
 import { parseSourceUrl } from "./sourceUrl.js";
+import { platformOf } from "./sourcePlatform.js";
 import { targetUrl } from "./targetUrl.js";
 import { isoDate } from "./csv.js";
 
@@ -28,6 +29,7 @@ function migrationCsv(rows, { teamLabel = "Team", serverUrl = null } = {}) {
     "Target organization",
     "Target repository",
     "Target URL",
+    "Source",
     "Source type",
     "Source namespace",
     "Source repository",
@@ -50,6 +52,7 @@ function migrationCsv(rows, { teamLabel = "Team", serverUrl = null } = {}) {
       row.organization,
       row.repository,
       targetUrl(serverUrl, row) ?? "",
+      platformOf(row),
       row.sourceType ?? "",
       ...sourceCells(row.sourceUrl),
       row.team ?? "",
@@ -75,11 +78,13 @@ function workflowStatus(workflow) {
 // One line per workflow rather than per repository: a rollup would drop the
 // names, which is the thing this table exists to show. `workflowsFor` returns a
 // group's workflows, already fetched by the caller.
-function workflowCsv(groups, workflowsFor, { teamLabel = "Team" } = {}) {
+function workflowCsv(groups, workflowsFor, { teamLabel = "Team", serverUrl = null } = {}) {
   const headers = [
     "Status",
     "Target organization",
     "Target repository",
+    "Target URL",
+    "Source",
     "Source type",
     "Source namespace",
     "Source repository",
@@ -100,6 +105,8 @@ function workflowCsv(groups, workflowsFor, { teamLabel = "Team" } = {}) {
         workflowStatus(workflow),
         group.organization,
         group.repository,
+        targetUrl(serverUrl, group) ?? "",
+        platformOf(group),
         group.sourceType ?? "",
         ...sourceCells(group.sourceUrl),
         group.team ?? "",

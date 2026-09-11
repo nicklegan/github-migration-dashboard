@@ -20,7 +20,7 @@ async function isGitRepository() {
   return result.exitCode === 0;
 }
 
-async function commitData(dataDir, message) {
+async function commitData(dataDir, message, committer) {
   if (!(await isGitRepository())) {
     core.warning(
       `Not inside a Git repository, so ${dataDir} was not committed. ` +
@@ -42,9 +42,9 @@ async function commitData(dataDir, message) {
 
   await exec("git", [
     "-c",
-    "user.name=github-actions[bot]",
+    `user.name=${committer.name}`,
     "-c",
-    `user.email=${committerEmail(process.env.GITHUB_SERVER_URL)}`,
+    `user.email=${committer.email}`,
     "commit",
     "-m",
     message,

@@ -261,7 +261,7 @@ async function run() {
 
   let committed = false;
   if (config.commitData && changed) {
-    committed = await commitData(config.dataDir, config.commitMessage);
+    committed = await commitData(config.dataDir, config.commitMessage, config.committer);
   }
 
   core.setOutput("changed", String(changed));

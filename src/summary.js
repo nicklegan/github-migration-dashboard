@@ -149,6 +149,7 @@ function buildRows(migrations, repos, { windowMs = Infinity, now = Date.now(), d
       durationMinutes: representative.durationMinutes ?? null,
       sourceUrl: representative.sourceUrl ?? null,
       sourceType: representative.sourceType ?? null,
+      sourceKind: representative.sourceKind ?? null,
       // The warnings of the attempt that produced the repository, like its state
       // and duration. Summing across attempts would multiply the same warnings
       // by however many times a migration was retried.
@@ -181,6 +182,7 @@ function buildRows(migrations, repos, { windowMs = Infinity, now = Date.now(), d
         repoSizeMB: record?.repoSizeMB ?? null,
         sourceUrl: a.sourceUrl ?? null,
         sourceType: a.sourceType ?? null,
+        sourceKind: a.sourceKind ?? null,
         team: record?.team ?? null,
       })),
       workflows: workflowList,

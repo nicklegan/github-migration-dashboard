@@ -1,5 +1,6 @@
 import * as core from "@actions/core";
 import { enterpriseSlugFromServerUrl } from "./organizations.js";
+import { committerEmail } from "./git.js";
 
 // Reads and validates every action input in one place.
 function readConfig() {
@@ -27,6 +28,10 @@ function readConfig() {
     commitData: core.getBooleanInput("commit-data"),
     commitMessage:
       core.getInput("commit-message") || "chore: update migration data [skip ci]",
+    committer: {
+      name: core.getInput("committer-name") || "github-actions[bot]",
+      email: core.getInput("committer-email") || committerEmail(process.env.GITHUB_SERVER_URL),
+    },
     budget: {
       rest: positiveInt(core.getInput("rest-budget"), 4000),
       graphql: positiveInt(core.getInput("graphql-budget"), 4000),

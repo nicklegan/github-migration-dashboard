@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useState } from "react";
 import { oneDecimal, dateTime } from "../format.js";
 import { targetUrl } from "../targetUrl.js";
+import { platformOf } from "../sourcePlatform.js";
 import { migrationCsv } from "../exportRows.js";
 import { loadDetail } from "../api.js";
 import SourceCells from "./SourceCells.jsx";
@@ -8,6 +9,7 @@ import ExportCsvButton from "./ExportCsvButton.jsx";
 import Blankslate from "./Blankslate.jsx";
 import Icon from "./Icon.jsx";
 import { useSort, SortableTh, OrgCell } from "./table.jsx";
+import { useFillViewport } from "../useFillViewport.js";
 
 // Only a repository that exists on the target is linked; targetUrl decides.
 function TargetRepository({ row, serverUrl }) {
@@ -54,7 +56,7 @@ function AttemptRows({ attempts }) {
         <span className="fg-muted">Attempt {index + 1}</span>
         {attempt.failureReason && <span className="label label-danger" title={attempt.failureReason}>{attempt.failureReason}</span>}
       </td>
-      <td className="fg-muted">{attempt.sourceType || "—"}</td>
+      <td className="fg-muted" title={attempt.sourceType || undefined}>{platformOf(attempt)}</td>
       <SourceCells url={attempt.sourceUrl} sourceType={attempt.sourceType} />
       <td>{attempt.team || <span className="fg-muted">—</span>}</td>
       <td className="fg-muted">{dateTime(attempt.createdAt)}</td>
@@ -69,7 +71,7 @@ const COLUMNS = {
   state: (r) => r.state,
   organization: (r) => r.organization,
   repository: (r) => r.repository,
-  sourceType: (r) => r.sourceType,
+  sourceType: (r) => platformOf(r),
   team: (r) => r.team,
   createdAt: (r) => r.createdAt,
   durationMinutes: (r) => r.durationMinutes,
@@ -93,11 +95,13 @@ export default function MigrationsTable({ repositories, teamLabel = "Team", serv
         row.organization.toLowerCase().includes(q) ||
         (row.team || "").toLowerCase().includes(q) ||
         (row.sourceType || "").toLowerCase().includes(q) ||
+        platformOf(row).toLowerCase().includes(q) ||
         row.state.toLowerCase().includes(q),
     );
   }, [repositories, query]);
 
   const { sorted: rows, sort, toggle: toggleSort } = useSort(filtered, COLUMNS);
+  const scrollRef = useFillViewport([rows.length > 0]);
 
   const toggle = async (row) => {
     setExpanded((current) => {
@@ -162,7 +166,7 @@ export default function MigrationsTable({ repositories, teamLabel = "Team", serv
           {query ? "Try a different search, or clear the filters." : "Nothing in this time range matches the current selection."}
         </Blankslate>
       ) : (
-        <div className="table-scroll">
+        <div className="table-scroll" ref={scrollRef}>
           <table>
             <thead>
               <tr>
@@ -223,7 +227,7 @@ export default function MigrationsTable({ repositories, teamLabel = "Team", serv
                           </span>
                         )}
                       </td>
-                      <td className="fg-muted">{row.sourceType || "—"}</td>
+                      <td className="fg-muted" title={row.sourceType || undefined}>{platformOf(row)}</td>
                       <SourceCells url={row.sourceUrl} sourceType={row.sourceType} />
                       <td>{row.team || <span className="fg-muted">—</span>}</td>
                       <td className="fg-muted">{dateTime(row.createdAt)}</td>

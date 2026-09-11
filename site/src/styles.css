@@ -132,7 +132,7 @@ h1, h2, h3 { margin: 0; color: var(--fg-emphasis); }
 .app-header-sep { color: var(--fg-subtle); }
 .app-header-actions { margin-left: auto; display: flex; gap: 8px; }
 
-.app { max-width: 1280px; margin: 0 auto; padding: 24px 24px 64px; }
+.app { max-width: 1280px; margin: 0 auto; padding: 24px; }
 
 .subhead-wrap { border-bottom: 1px solid var(--border-muted); background: var(--canvas-default); }
 
@@ -583,8 +583,8 @@ td .label, td .counter-sm { margin-left: 8px; vertical-align: middle; }
 
 .table-scroll {
   overflow: auto;
-  /* Show ~30 rows plus the sticky header, then scroll within the table. */
-  max-height: calc(31 * 41px);
+  /* Height is set at runtime to fill the window (useFillViewport). */
+  max-height: calc(100vh - 320px);
   border-radius: 0 0 var(--radius) var(--radius);
 }
 

@@ -48,9 +48,14 @@ function workflowGroups(repositories) {
       bucket: repo.d,
       organization: repo.organization,
       repository: repo.repository,
+      // Whether the repository is on the target decides if its name is linked.
+      exists: repo.exists,
+      state: repo.state,
+      removed: repo.removed,
       // Carried from the repository's migration so the workflow table can show
       // where the code came from and who owns it without a second lookup.
       sourceType: repo.sourceType ?? null,
+      sourceKind: repo.sourceKind ?? null,
       sourceUrl: repo.sourceUrl ?? null,
       team: repo.team ?? null,
       migratedAt: repo.createdAt,

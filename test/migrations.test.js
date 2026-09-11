@@ -18,7 +18,7 @@ function node(id, overrides = {}) {
     sourceUrl: `https://ghes.example/legacy/${id}`,
     failureReason: null,
     migrationLogUrl: null,
-    migrationSource: { name: "Azure DevOps" },
+    migrationSource: { name: "Azure DevOps", type: "AZURE_DEVOPS" },
     ...overrides,
   };
 }
@@ -57,7 +57,37 @@ test("a migration node becomes a row with its source and state", async () => {
     failureReason: null,
     migrationLogUrl: null,
     sourceType: "Azure DevOps",
+    sourceKind: "AZURE_DEVOPS",
   });
+  assert.match(octokit.calls[0].query, /migrationSource \{ name type \}/);
+});
+
+// Some tenants hold a source record whose type the resolver cannot render and
+// answer the whole page with a 500. The page is re-read without the type so
+// the migrations still arrive; the label then falls back to host and name.
+test("a page the typed query cannot render is re-read without the type", async () => {
+  const resolverFailure = new Error(
+    "Something went wrong while executing your query on 2026-09-11T11:55:04Z. Please include `X` when reporting this issue.",
+  );
+  const octokit = stubGraphql([resolverFailure, page([node("m1", { migrationSource: { name: "GitLab Source" } })])]);
+  const budget = new Budget({ graphql: 10 });
+
+  const { rows } = await fetchNewMigrations(octokit, "acme", null, budget);
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].sourceType, "GitLab Source");
+  assert.equal(rows[0].sourceKind, null);
+  assert.match(octokit.calls[0].query, /name type/);
+  assert.doesNotMatch(octokit.calls[1].query, /name type/);
+  assert.equal(budget.spent.graphql, 2, "the retry is paid for");
+});
+
+test("any other GraphQL failure still surfaces", async () => {
+  const forbidden = Object.assign(new Error("Resource not accessible"), { status: 403 });
+  await assert.rejects(
+    () => fetchNewMigrations(stubGraphql([forbidden]), "acme", null, new Budget()),
+    /Resource not accessible/,
+  );
 });
 
 // repositoryMigrations treats `after` as inclusive: each page repeats the node

@@ -87,6 +87,17 @@ test("a repository with no source or team recorded still groups", () => {
   assert.equal(group.team, null);
 });
 
+// The workflow table links the repository name the same way the repository
+// table does, which needs the same facts targetUrl reads off a migration row.
+test("a group carries what decides whether its repository is linked", () => {
+  const [group] = workflowGroups([
+    { ...repo("org-a/api", { succeeded: 1, failing: 0, idle: 0 }), state: "SUCCEEDED", exists: true, removed: false },
+  ]);
+  assert.equal(group.exists, true);
+  assert.equal(group.state, "SUCCEEDED");
+  assert.equal(group.removed, false);
+});
+
 // The lone workflow travels on the row, so the table can render it inline
 // rather than behind a toggle that opens a single line.
 test("a group carries a lone workflow, and nothing when there are several", () => {

@@ -4,7 +4,13 @@
 // Unlike other connections, repositoryMigrations treats `after` as inclusive:
 // each page repeats the node its cursor points at, so ids are deduplicated here.
 
-const MIGRATIONS_QUERY = `
+// `migrationSource.type` is set by the importer (GITHUB_ARCHIVE, GITLAB,
+// BITBUCKET_SERVER, AZURE_DEVOPS), unlike `name`, which is free text typed by
+// whoever created the source and routinely reused across platforms. Some
+// tenants have a source record whose type the resolver cannot render and the
+// whole page comes back as a 500, so the query exists in two shapes and a page
+// that fails with the type is re-read without it.
+const migrationsQuery = (withType) => `
 query ($login: String!, $cursor: String) {
   organization(login: $login) {
     login
@@ -20,11 +26,14 @@ query ($login: String!, $cursor: String) {
         sourceUrl
         failureReason
         migrationLogUrl
-        migrationSource { name }
+        migrationSource { name${withType ? " type" : ""} }
       }
     }
   }
 }`;
+
+const MIGRATIONS_QUERY = migrationsQuery(true);
+const MIGRATIONS_QUERY_NAME_ONLY = migrationsQuery(false);
 
 function toRow(node, org) {
   return {
@@ -39,7 +48,25 @@ function toRow(node, org) {
     failureReason: node.failureReason ?? null,
     migrationLogUrl: node.migrationLogUrl ?? null,
     sourceType: node.migrationSource?.name ?? null,
+    sourceKind: node.migrationSource?.type ?? null,
   };
+}
+
+// A GraphQL 500 for the typed shape is the tenant's resolver, not the
+// organization; anything else — permissions, rate limit — is rethrown as is.
+function isResolverFailure(err) {
+  const message = String(err?.message ?? "");
+  return /Something went wrong while executing your query/i.test(message);
+}
+
+async function fetchPage(octokit, org, cursor, budget) {
+  try {
+    return await octokit.graphql(MIGRATIONS_QUERY, { login: org, cursor });
+  } catch (err) {
+    if (!isResolverFailure(err)) throw err;
+    if (!budget.take("graphql")) throw err;
+    return octokit.graphql(MIGRATIONS_QUERY_NAME_ONLY, { login: org, cursor });
+  }
 }
 
 // Yields only migrations newer than `cursor`, returning the cursor to store.
@@ -51,7 +78,7 @@ async function fetchNewMigrations(octokit, org, cursor, budget) {
 
   while (hasNextPage) {
     if (!budget.take("graphql")) break;
-    const data = await octokit.graphql(MIGRATIONS_QUERY, { login: org, cursor: next });
+    const data = await fetchPage(octokit, org, next, budget);
     const connection = data.organization?.repositoryMigrations;
     if (!connection) break;
 

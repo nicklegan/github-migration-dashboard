@@ -178,6 +178,13 @@ test("any client error retires the source for the run", async () => {
   }
 });
 
+// The remedy for a 403 here is a specific scope, so the log names it.
+test("a forbidden live-migrations read names the scope it needs", async () => {
+  const err = Object.assign(new Error("HTTP 403"), { status: 403 });
+  const { unavailable } = await fetchLiveMigrations(stubOctokit({ "": err }), new Budget());
+  assert.match(unavailable, /admin:enterprise/);
+});
+
 test("an unexpected failure still surfaces", async () => {
   const boom = Object.assign(new Error("Server Error"), { status: 500 });
   await assert.rejects(

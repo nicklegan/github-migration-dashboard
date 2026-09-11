@@ -35,7 +35,7 @@ other chart, the KPI cards, and the tables follow. Bar charts show the ten
 largest organizations or teams and roll the rest into an **Other** row that
 selects them all at once; **Show all** expands the full list.
 
-![The overview tab: KPI cards, breakdowns by organization, state, and team, and progress-over-time charts](docs/dashboard.png)
+![A walkthrough of the dashboard: the overview's KPI cards and breakdowns, a chart filtering everything else, a repository's migration attempts unfolding, and a repository's Actions workflows with their status](docs/dashboard.gif)
 
 ## Usage
 
@@ -108,7 +108,7 @@ durations survive between runs — hence `contents: write` and the checkout step
 | `token`                      | Classic PAT that reads migrations, the audit log, and Actions runs. The default `GITHUB_TOKEN` cannot read these.                                                                        |                                          | [workflow.yml] | `true`   |
 | `team-property`              | Organization custom property that holds the owning team. Its name is what the dashboard prints as a heading (`business_unit` → `Business unit`).                                          | `team`                                   | [workflow.yml] | `false`  |
 | `onboarding-window-days`     | How long after a successful migration a newly added workflow still counts as part of that migration. `0` disables the window.                                                            | `60`                                     | [workflow.yml] | `false`  |
-| `live-migrations`            | Also report Enterprise Live Migrations (GHES → data residency). Skipped automatically when the tenant does not expose the API.                                                           | `true`                                   | [action.yml]   | `false`  |
+| `live-migrations`            | Also report Enterprise Live Migrations (GHES → data residency). GHE.com only; needs the `admin:enterprise` scope. Skipped automatically when unavailable.                              | `true`                                   | [action.yml]   | `false`  |
 | `enterprise`                 | Enterprise slug to report on, as in `github.com/enterprises/<slug>`. Autosensed from the tenant host, or from the token. Only needed to disambiguate.                                    | (autosensed)                             | [action.yml]   | `false`  |
 | `data-dir`                   | Directory holding the JSON data store the dashboard reads and the action commits.                                                                                                       | `data`                                   | [action.yml]   | `false`  |
 | `api-url`                    | REST API base URL. Autosensed from the runner. Override only when the target organizations live on a different instance than the runner.                                                 | (autosensed)                             | [action.yml]   | `false`  |
@@ -123,6 +123,8 @@ durations survive between runs — hence `contents: write` and the checkout step
 | `output-path`                | Directory the action writes the ready-to-deploy dashboard into.                                                                                                                         | `_site`                                  | [action.yml]   | `false`  |
 | `commit-data`                | Commit and push the refreshed data store when it changes. Needs an `actions/checkout` step and `contents: write`.                                                                        | `true`                                   | [action.yml]   | `false`  |
 | `commit-message`             | Commit message used when the data store is committed.                                                                                                                                   | `chore: update migration data [skip ci]` | [action.yml]   | `false`  |
+| `committer-name`             | Author and committer name for data store commits.                                                                                                                                       | `github-actions[bot]`                    | [action.yml]   | `false`  |
+| `committer-email`            | Author and committer email for data store commits. Empty derives the Actions bot address on the runner's host, e.g. `github-actions[bot]@users.noreply.github.com`.                     | _derived_                                | [action.yml]   | `false`  |
 
 [workflow.yml]: #usage 'Usage'
 [action.yml]: action.yml 'action.yml'
@@ -153,16 +155,18 @@ The migration APIs are not available to `GITHUB_TOKEN` or GitHub App tokens, so
 this action takes a **classic personal access token**. Its owner must be an
 **enterprise owner**, and an **organization owner** (or migrator) in each org.
 
-| Scope             | Why it is needed                                                              |
-| :---------------- | :---------------------------------------------------------------------------- |
-| `repo`            | Repository migrations, private-repo size, Actions runs                        |
-| `admin:org`       | Repository migrations, organization repositories, and custom property values  |
-| `workflow`        | Reads Actions workflows in migrated repositories                              |
-| `read:audit_log`  | Enterprise audit log: workflow runs, deletions, and each migration's duration |
-| `read:enterprise` | Enumerates every organization in the enterprise                               |
+| Scope              | Why it is needed                                                                       |
+| :----------------- | :------------------------------------------------------------------------------------- |
+| `repo`             | Repository migrations, repository size, Actions runs                                   |
+| `admin:org`        | Repository migrations, organization repositories, and custom property values           |
+| `workflow`         | Reads Actions workflows in migrated repositories                                       |
+| `read:audit_log`   | Enterprise audit log: workflow runs, deletions, and each migration's duration          |
+| `read:enterprise`  | Enumerates every organization in the enterprise                                        |
+| `admin:enterprise` | Enterprise Live Migrations — only on a GHE.com (data residency) tenant; otherwise omit |
 
 An organization the token cannot read is skipped with a warning and retried
-daily.
+daily. Without `admin:enterprise` the run still succeeds, but live migrations
+are skipped with a note in the log.
 
 - :bulb: Authorize the token for SSO in every organization: Settings → Developer
   settings → Personal access tokens → Configure SSO.
@@ -273,8 +277,9 @@ The action rides the runner-provided `GITHUB_API_URL` / `GITHUB_GRAPHQL_URL`, so
 it works on github.com and ghe.com without per-platform branching. The
 enterprise is autosensed from the `*.ghe.com` tenant host, or otherwise from the
 token; if the token owns several, the one owning the workflow's organization
-wins. Live migrations exist on ghe.com only — a tenant without the endpoint, or
-a token not authorized for it, is logged and skipped.
+wins. Live migrations exist on ghe.com only and need the `admin:enterprise`
+scope — a tenant without the endpoint, or a token without the scope, is logged
+and skipped.
 
 - :bulb: Set `enterprise` when autosensing is still ambiguous, and `api-url` only
   when the target organizations live on a different instance than the runner.

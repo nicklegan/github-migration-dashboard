@@ -62,6 +62,7 @@ const group = {
   bucket: "0a",
   organization: "org-a",
   repository: "api",
+  exists: true,
   sourceType: "GitLab Source",
   sourceUrl: "https://gitlab.dev/gl/api",
   team: "Payments",
@@ -74,7 +75,7 @@ test("the workflow export is one line per workflow", () => {
     { name: "CI", status: "failing", state: "active", url: "https://x/ci" },
     { name: "Nightly", status: "idle", state: "active", manual: true, onboarding: false },
   ];
-  const { headers, rows } = workflowCsv([group], () => workflows);
+  const { headers, rows } = workflowCsv([group], () => workflows, { serverUrl: "https://acme.ghe.com" });
   const cell = (i, name) => rows[i][headers.indexOf(name)];
 
   assert.equal(rows.length, 2);
@@ -82,6 +83,7 @@ test("the workflow export is one line per workflow", () => {
   assert.equal(cell(0, "Workflow"), "CI");
   assert.equal(cell(0, "Workflow URL"), "https://x/ci");
   assert.equal(cell(0, "Target repository"), "api");
+  assert.equal(cell(0, "Target URL"), "https://acme.ghe.com/org-a/api");
   assert.equal(cell(0, "Source repository"), "api");
 
   // A manual workflow that never ran is unmeasurable, exactly as the table badges it.

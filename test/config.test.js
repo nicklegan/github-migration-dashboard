@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { labelFromProperty, resolveEnterprise, resolveServerUrl } from "../src/config.js";
+import { labelFromProperty, readConfig, resolveEnterprise, resolveServerUrl } from "../src/config.js";
 
 // Organizations name this concept team, business unit, group, or tribe. The
 // dashboard prints the label, so it has to read as a heading rather than as a
@@ -65,4 +65,38 @@ test("an api-url override moves the links to that instance", () => {
 test("an unusable server URL falls back to github.com", () => {
   assert.equal(resolveServerUrl("", ""), "https://github.com");
   assert.equal(resolveServerUrl("not a url", undefined), "https://github.com");
+});
+
+// @actions/core reads inputs from INPUT_* variables, which is how a workflow
+// hands them to the action.
+function withInputs(inputs, serverUrl, fn) {
+  const saved = { ...process.env };
+  process.env.INPUT_TOKEN = "x";
+  process.env["INPUT_COMMIT-DATA"] = "true";
+  process.env.GITHUB_SERVER_URL = serverUrl;
+  for (const [name, value] of Object.entries(inputs)) process.env[`INPUT_${name.toUpperCase()}`] = value;
+  try {
+    return fn(readConfig());
+  } finally {
+    for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+    Object.assign(process.env, saved);
+  }
+}
+
+test("the committer defaults to the Actions bot on the runner's host", () => {
+  withInputs({}, "https://acme.ghe.com", (config) => {
+    assert.equal(config.committer.name, "github-actions[bot]");
+    assert.equal(config.committer.email, "github-actions[bot]@users.noreply.acme.ghe.com");
+  });
+});
+
+test("committer-name and committer-email override the defaults", () => {
+  withInputs(
+    { "committer-name": "Migration Bot", "committer-email": "migrations@example.com" },
+    "https://github.com",
+    (config) => {
+      assert.equal(config.committer.name, "Migration Bot");
+      assert.equal(config.committer.email, "migrations@example.com");
+    },
+  );
 });

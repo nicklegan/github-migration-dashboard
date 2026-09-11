@@ -142,7 +142,7 @@ function unavailableReason(err, budget = null) {
   if (budget?.exhausted?.has("rest")) return "the REST budget ran out";
   if (status === 404) return "this host does not expose the live-migrations API";
   if (status === 401 || status === 403) {
-    return "the token is not authorized to read live migrations";
+    return "the token lacks the admin:enterprise scope that live migrations require";
   }
   if (status >= 400 && status < 500) return `the live-migrations API returned HTTP ${status}`;
   return null;

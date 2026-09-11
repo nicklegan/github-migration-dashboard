@@ -1,6 +1,6 @@
 {
   "name": "github-migration-dashboard",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Tracks repository and Actions workflow migrations across your enterprise, and builds a GitHub Pages dashboard from them.",
   "author": {
     "name": "GitHub Expert Services",

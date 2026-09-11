@@ -49,7 +49,7 @@ inputs:
     required: false
     default: '256'
   live-migrations:
-    description: Also read Enterprise Live Migrations (GHES to GitHub Enterprise Cloud with data residency) from the destination tenant, so they appear alongside the GraphQL repository migrations. Reading the destination side means the same token covers both. Skipped automatically when the tenant does not expose the API.
+    description: Also read Enterprise Live Migrations (GHES to GitHub Enterprise Cloud with data residency) from the destination tenant, so they appear alongside the GraphQL repository migrations. GHE.com only, and the token needs the admin:enterprise scope. Skipped automatically when the tenant does not expose the API or the scope is missing.
     required: false
     default: 'true'
   rest-budget:
@@ -76,6 +76,14 @@ inputs:
     description: Commit message used when the data store is committed.
     required: false
     default: 'chore: update migration data [skip ci]'
+  committer-name:
+    description: Author and committer name for data store commits.
+    required: false
+    default: 'github-actions[bot]'
+  committer-email:
+    description: Author and committer email for data store commits. Empty derives the GitHub Actions bot address on the runner's server host, e.g. github-actions[bot]@users.noreply.github.com.
+    required: false
+    default: ''
 
 outputs:
   changed:

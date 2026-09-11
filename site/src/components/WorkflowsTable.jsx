@@ -1,6 +1,8 @@
 import { Fragment, useMemo, useState } from "react";
 import { dateTime } from "../format.js";
 import { workflowGroups, workflowCount } from "../groupWorkflows.js";
+import { platformOf } from "../sourcePlatform.js";
+import { targetUrl } from "../targetUrl.js";
 import { workflowCsv, exportPlan } from "../exportRows.js";
 import { loadDetail } from "../api.js";
 import { safeHref } from "./SourceCells.jsx";
@@ -9,6 +11,7 @@ import ExportCsvButton from "./ExportCsvButton.jsx";
 import Blankslate from "./Blankslate.jsx";
 import Icon from "./Icon.jsx";
 import { useSort, SortableTh, OrgCell } from "./table.jsx";
+import { useFillViewport } from "../useFillViewport.js";
 
 const STATUS_LABEL = {
   succeeded: "Succeeded",
@@ -17,6 +20,17 @@ const STATUS_LABEL = {
   manual: "Manual",
   "post-onboarding": "Added later",
 };
+
+function TargetRepository({ group, serverUrl }) {
+  const href = targetUrl(serverUrl, group);
+  return href ? (
+    <a href={href} target="_blank" rel="noreferrer">
+      {group.repository}
+    </a>
+  ) : (
+    group.repository
+  );
+}
 
 // Data captured before the action recorded workflow URLs has no link target.
 function WorkflowName({ workflow }) {
@@ -73,7 +87,7 @@ const COLUMNS = {
   status: (g) => g.status,
   organization: (g) => g.organization,
   repository: (g) => g.repository,
-  sourceType: (g) => g.sourceType,
+  sourceType: (g) => platformOf(g),
   team: (g) => g.team,
   count: (g) => g.count,
   migratedAt: (g) => g.migratedAt,
@@ -98,12 +112,14 @@ export default function WorkflowsTable({ repositories, teamLabel = "Team", serve
         g.repository.toLowerCase().includes(q) ||
         g.organization.toLowerCase().includes(q) ||
         (g.sourceType ?? "").toLowerCase().includes(q) ||
+        platformOf(g).toLowerCase().includes(q) ||
         (g.team ?? "").toLowerCase().includes(q) ||
         (g.status ?? "").toLowerCase().includes(q),
     );
   }, [allGroups, query]);
 
   const { sorted: groups, sort, toggle: toggleSort } = useSort(filtered, COLUMNS);
+  const scrollRef = useFillViewport([groups.length > 0]);
 
   const toggle = async (group) => {
     setExpanded((current) => {
@@ -142,7 +158,7 @@ export default function WorkflowsTable({ repositories, teamLabel = "Team", serve
       buckets.get(group.bucket)?.[group.key]?.workflows ??
       (group.workflow ? [group.workflow] : []);
 
-    return workflowCsv(groups, workflowsFor, { teamLabel });
+    return workflowCsv(groups, workflowsFor, { teamLabel, serverUrl });
   };
 
   const empty = (
@@ -197,7 +213,7 @@ export default function WorkflowsTable({ repositories, teamLabel = "Team", serve
       {groups.length === 0 ? (
         empty
       ) : (
-        <div className="table-scroll">
+        <div className="table-scroll" ref={scrollRef}>
           <table>
             <thead>
               <tr>
@@ -248,11 +264,13 @@ export default function WorkflowsTable({ repositories, teamLabel = "Team", serve
                       <td>
                         <span className="cell-inline">
                           <Icon name="repo" className="fg-muted" />
-                          <span className="text-bold">{group.repository}</span>
+                          <span className="text-bold">
+                            <TargetRepository group={group} serverUrl={serverUrl} />
+                          </span>
                         </span>
                         {!single && <span className="counter counter-sm">{group.count} workflows</span>}
                       </td>
-                      <td className="fg-muted">{group.sourceType || "—"}</td>
+                      <td className="fg-muted" title={group.sourceType || undefined}>{platformOf(group)}</td>
                       <SourceCells url={group.sourceUrl} sourceType={group.sourceType} />
                       <td>{group.team || <span className="fg-muted">—</span>}</td>
                       {single ? (
