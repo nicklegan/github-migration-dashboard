@@ -11,7 +11,11 @@
 //      products apart: github.com is GHEC, *.ghe.com is GHEC with data
 //      residency, anything else is a GitHub Enterprise Server.
 //
-// A name that matches no family is shown as typed rather than guessed at.
+// A name that matches no family is not shown as a platform: migrators sometimes
+// name a source after the project it imports ("team/project"). Before giving
+// up, the host is checked against the other migrations: when every classified
+// source on that host is one platform, an unclassified one there is too. The
+// raw name is never shown; it is an input here, not a fact about the source.
 
 const LIVE_MIGRATION = "Enterprise Live Migration";
 
@@ -31,6 +35,7 @@ const KIND_FAMILY = {
   BITBUCKET_SERVER: "bitbucket",
   AZURE_DEVOPS: "ado",
 };
+const FAMILY_KIND = Object.fromEntries(Object.entries(KIND_FAMILY).map(([kind, family]) => [family, kind]));
 
 const NAME_FAMILY = [
   ["gitlab", /gitlab/i],
@@ -38,10 +43,6 @@ const NAME_FAMILY = [
   ["ado", /azure\s*devops|\bado\b/i],
   ["github", /github|\bghec\b|\bghes\b|\bghe\b/i],
 ];
-
-// Visible fallback for a name nobody could classify; the full text stays on
-// hover and in the CSV.
-const RAW_NAME_CHARS = 24;
 
 function hostOf(url) {
   try {
@@ -64,18 +65,13 @@ function familyOf(sourceKind, sourceType) {
   return null;
 }
 
-function truncate(text) {
-  return text.length > RAW_NAME_CHARS ? `${text.slice(0, RAW_NAME_CHARS - 1)}…` : text;
-}
-
+// The platform label, or null when neither the importer nor the name says.
 function sourcePlatform(sourceType, sourceUrl, sourceKind = null) {
   if (sourceType === LIVE_MIGRATION) return LABELS.elm;
 
   const family = familyOf(sourceKind, sourceType);
   if (family === "github") return githubProduct(hostOf(sourceUrl));
-  if (family) return LABELS[family];
-
-  return sourceType ? truncate(sourceType) : "—";
+  return family ? LABELS[family] : null;
 }
 
 // The same, read off a row or attempt as the tables carry them.
@@ -83,4 +79,33 @@ function platformOf(row) {
   return sourcePlatform(row?.sourceType, row?.sourceUrl, row?.sourceKind ?? null);
 }
 
-export { sourcePlatform, platformOf, LABELS as SOURCE_LABELS, LIVE_MIGRATION };
+// Fills `sourceKind` on rows whose source could not be classified, from the
+// consensus of classified rows on the same host. A host with sources of more
+// than one family teaches nothing. Live migrations carry no source URL and are
+// left alone. Returns the rows unchanged when there is nothing to fill.
+function inferSourceKinds(rows) {
+  const hosts = new Map();
+  const unknown = [];
+  for (const row of rows) {
+    if (row.sourceType === LIVE_MIGRATION) continue;
+    const host = hostOf(row.sourceUrl);
+    if (!host) continue;
+    const family = familyOf(row.sourceKind, row.sourceType);
+    if (!family) {
+      unknown.push(row);
+      continue;
+    }
+    const seen = hosts.get(host);
+    hosts.set(host, seen === undefined || seen === family ? family : null);
+  }
+  if (unknown.length === 0) return rows;
+
+  const filled = new Map();
+  for (const row of unknown) {
+    const family = hosts.get(hostOf(row.sourceUrl));
+    if (family) filled.set(row, { ...row, sourceKind: FAMILY_KIND[family] });
+  }
+  return filled.size === 0 ? rows : rows.map((row) => filled.get(row) ?? row);
+}
+
+export { sourcePlatform, platformOf, inferSourceKinds, LABELS as SOURCE_LABELS, LIVE_MIGRATION };

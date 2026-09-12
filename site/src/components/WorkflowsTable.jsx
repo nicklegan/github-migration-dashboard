@@ -111,8 +111,7 @@ export default function WorkflowsTable({ repositories, teamLabel = "Team", serve
       (g) =>
         g.repository.toLowerCase().includes(q) ||
         g.organization.toLowerCase().includes(q) ||
-        (g.sourceType ?? "").toLowerCase().includes(q) ||
-        platformOf(g).toLowerCase().includes(q) ||
+        platformOf(g)?.toLowerCase().includes(q) ||
         (g.team ?? "").toLowerCase().includes(q) ||
         (g.status ?? "").toLowerCase().includes(q),
     );
@@ -270,7 +269,7 @@ export default function WorkflowsTable({ repositories, teamLabel = "Team", serve
                         </span>
                         {!single && <span className="counter counter-sm">{group.count} workflows</span>}
                       </td>
-                      <td className="fg-muted" title={group.sourceType || undefined}>{platformOf(group)}</td>
+                      <td className="fg-muted">{platformOf(group) ?? "—"}</td>
                       <SourceCells url={group.sourceUrl} sourceType={group.sourceType} />
                       <td>{group.team || <span className="fg-muted">—</span>}</td>
                       {single ? (

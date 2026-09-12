@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sourcePlatform, platformOf } from "../src/sourcePlatform.js";
+import { sourcePlatform, platformOf, inferSourceKinds } from "../src/sourcePlatform.js";
 
 // The importer's own type decides the family; the name is not consulted.
 test("the importer's source type decides the platform", () => {
@@ -32,15 +32,47 @@ test("without a type, the name decides the family and the host the product", () 
   assert.equal(sourcePlatform("Azure DevOps Source", "https://dev.azure.com/o/p/_git/r"), "Azure DevOps");
 });
 
-// A name that names no family is shown as typed, shortened for the column; the
-// full text remains on hover and in the CSV.
-test("an unclassifiable name is shown as typed, truncated", () => {
-  assert.equal(sourcePlatform("test-migration-project", "https://code.acme.com/a/b"), "test-migration-project");
-  assert.equal(
-    sourcePlatform("platform-team/iac-enforcement-infrastructure", "https://code.acme.com/a/b"),
-    "platform-team/iac-enfor…",
-  );
-  assert.equal(sourcePlatform(null, null), "—");
+// A name that names no family is not a platform, so the column stays empty
+// rather than showing a project path as if it were one; the raw name remains
+// on hover and in the CSV's source-type column.
+test("an unclassifiable name yields no platform", () => {
+  assert.equal(sourcePlatform("test-migration-project", "https://code.acme.com/a/b"), null);
+  assert.equal(sourcePlatform("platform-team/iac-enforcement-infrastructure", "https://code.acme.com/a/b"), null);
+  assert.equal(sourcePlatform(null, null), null);
+});
+
+// A migrator who named one source after its project usually migrated many more
+// from the same host under a proper name; those decide what the host is.
+test("an unclassified source takes the platform of its host's other sources", () => {
+  const rows = inferSourceKinds([
+    { id: "a", sourceType: "GitLab Source", sourceUrl: "https://code.acme.com/x/a" },
+    { id: "b", sourceType: "GitLab Archive Migration", sourceUrl: "https://code.acme.com/y/b" },
+    { id: "c", sourceType: "platform-team/iac-enforcement-infrastructure", sourceUrl: "https://code.acme.com/platform-team/iac" },
+    { id: "d", sourceType: "GHEC Source", sourceUrl: "https://github.acme.cloud/o/d" },
+  ]);
+  assert.equal(platformOf(rows[2]), "GitLab");
+  assert.equal(rows[2].sourceKind, "GITLAB");
+  // Classified rows are untouched, and the same objects come back.
+  assert.equal(rows[0].sourceKind, undefined);
+  assert.equal(platformOf(rows[3]), "GHES");
+});
+
+test("a host that hosted more than one platform teaches nothing", () => {
+  const rows = inferSourceKinds([
+    { id: "a", sourceType: "GitLab Source", sourceUrl: "https://scm.acme.com/x/a" },
+    { id: "b", sourceType: "Bitbucket Source", sourceUrl: "https://scm.acme.com/y/b" },
+    { id: "c", sourceType: "team/project", sourceUrl: "https://scm.acme.com/team/project" },
+  ]);
+  assert.equal(platformOf(rows[2]), null);
+});
+
+test("inference leaves rows alone when nothing is missing or nothing is known", () => {
+  const known = [{ id: "a", sourceType: "GitLab Source", sourceUrl: "https://code.acme.com/x/a" }];
+  assert.equal(inferSourceKinds(known), known);
+  const alone = [{ id: "c", sourceType: "team/project", sourceUrl: "https://code.acme.com/team/project" }];
+  assert.equal(inferSourceKinds(alone), alone);
+  const live = [{ id: "l", sourceType: "Enterprise Live Migration", sourceUrl: null }];
+  assert.equal(platformOf(inferSourceKinds(live)[0]), "GHES ELM");
 });
 
 test("a live migration has its own label", () => {

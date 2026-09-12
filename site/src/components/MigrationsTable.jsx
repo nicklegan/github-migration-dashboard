@@ -36,7 +36,9 @@ function StateLabel({ state }) {
 // Every attempt at a repository, oldest first, as rows under the repository's
 // own columns. The toggle column carries a timeline dot and connector so the
 // sequence still reads as one, without giving up the column alignment.
-function AttemptRows({ attempts }) {
+// Attempts are fetched on demand and so miss the host inference the rows had;
+// an attempt without a platform of its own takes its repository's.
+function AttemptRows({ attempts, platform }) {
   const ordered = [...attempts].sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
   return ordered.map((attempt, index) => (
     <tr key={attempt.id} className="nested-row attempt-row">
@@ -56,7 +58,7 @@ function AttemptRows({ attempts }) {
         <span className="fg-muted">Attempt {index + 1}</span>
         {attempt.failureReason && <span className="label label-danger" title={attempt.failureReason}>{attempt.failureReason}</span>}
       </td>
-      <td className="fg-muted" title={attempt.sourceType || undefined}>{platformOf(attempt)}</td>
+      <td className="fg-muted">{platformOf(attempt) ?? platform ?? "—"}</td>
       <SourceCells url={attempt.sourceUrl} sourceType={attempt.sourceType} />
       <td>{attempt.team || <span className="fg-muted">—</span>}</td>
       <td className="fg-muted">{dateTime(attempt.createdAt)}</td>
@@ -94,8 +96,7 @@ export default function MigrationsTable({ repositories, teamLabel = "Team", serv
         row.repository.toLowerCase().includes(q) ||
         row.organization.toLowerCase().includes(q) ||
         (row.team || "").toLowerCase().includes(q) ||
-        (row.sourceType || "").toLowerCase().includes(q) ||
-        platformOf(row).toLowerCase().includes(q) ||
+        platformOf(row)?.toLowerCase().includes(q) ||
         row.state.toLowerCase().includes(q),
     );
   }, [repositories, query]);
@@ -227,7 +228,7 @@ export default function MigrationsTable({ repositories, teamLabel = "Team", serv
                           </span>
                         )}
                       </td>
-                      <td className="fg-muted" title={row.sourceType || undefined}>{platformOf(row)}</td>
+                      <td className="fg-muted">{platformOf(row) ?? "—"}</td>
                       <SourceCells url={row.sourceUrl} sourceType={row.sourceType} />
                       <td>{row.team || <span className="fg-muted">—</span>}</td>
                       <td className="fg-muted">{dateTime(row.createdAt)}</td>
@@ -237,7 +238,7 @@ export default function MigrationsTable({ repositories, teamLabel = "Team", serv
                     </tr>
                     {isOpen &&
                       (details.has(row.id) ? (
-                        <AttemptRows attempts={details.get(row.id)} />
+                        <AttemptRows attempts={details.get(row.id)} platform={platformOf(row)} />
                       ) : (
                         <tr className="nested-row">
                           <td className="toggle-col" />

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { loadSummary, loadRows } from "./api.js";
+import { inferSourceKinds } from "./sourcePlatform.js";
 import {
   filterByRange,
   computeKpis,
@@ -66,7 +67,7 @@ export default function App() {
   useEffect(() => {
     loadSummary().then(setSummary).catch((err) => setError(err.message));
     loadRows((loaded, total) => setProgress({ loaded, total }))
-      .then(setData)
+      .then((loaded) => setData({ ...loaded, rows: inferSourceKinds(loaded.rows) }))
       .catch((err) => setError(err.message));
   }, []);
 
