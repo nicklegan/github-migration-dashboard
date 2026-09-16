@@ -186,6 +186,25 @@ test("'all' keeps every row, a group keeps only its own", () => {
   assert.equal(inGroup(zeta, "org", "acme"), false);
 });
 
+// The same label the Source column and the cross-filter use, so grouping the
+// timeline by platform matches what the rest of the dashboard calls it.
+test("a timeline can be grouped by source platform", () => {
+  const gitlab = row("2026-03-09T01:00:00Z", {
+    sourceType: "GitLab Source",
+    sourceUrl: "https://gitlab.dev/a/b",
+  });
+  const ghes = row("2026-03-09T01:00:00Z", {
+    sourceType: "GHEC Source",
+    sourceUrl: "https://github.acme.cloud/o/r",
+  });
+  const unnamed = row("2026-03-09T01:00:00Z", { sourceType: null, sourceUrl: null });
+
+  assert.deepEqual(groupValues([gitlab, ghes, unnamed], "sourcePlatform"), ["GHES", "GitLab", "Unknown"]);
+  assert.equal(inGroup(gitlab, "sourcePlatform", "GitLab"), true);
+  assert.equal(inGroup(ghes, "sourcePlatform", "GitLab"), false);
+  assert.equal(inGroup(unnamed, "sourcePlatform", "Unknown"), true);
+});
+
 test("the per-bucket toggle names the bucket it plots", () => {
   assert.equal(stepLabel(timelinePlan("day", [], NOW)), "hour");
   assert.equal(stepLabel(timelinePlan("week", [], NOW)), "day");

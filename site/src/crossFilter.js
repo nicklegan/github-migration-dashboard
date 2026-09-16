@@ -2,6 +2,14 @@
 // every other chart, the KPIs, and the tables. Pure predicates, no React here,
 // so they unit-test directly.
 
+import {
+  attemptBucketOf,
+  warningBucketOf,
+  durationBucketOf,
+  onboardingLabelOf,
+  platformLabelOf,
+} from "./distributions.js";
+
 // A row matches a workflow-state selection when it has at least one workflow in
 // that status — the same rows that contributed to the slice.
 function matchesWorkflowState(migration, value) {
@@ -9,11 +17,18 @@ function matchesWorkflowState(migration, value) {
   return (migration.workflows?.[key] ?? 0) > 0;
 }
 
+// A distribution's bars stand for ranges, so their dimension matches on the
+// bucket a row falls in rather than on a value it carries.
 const MATCHERS = {
   team: (migration, value) => (migration.team || "Unassigned") === value,
   org: (migration, value) => (migration.organization || "Unknown") === value,
   state: (migration, value) => migration.state === value,
   workflowState: matchesWorkflowState,
+  sourcePlatform: (migration, value) => platformLabelOf(migration) === value,
+  onboarding: (migration, value) => onboardingLabelOf(migration) === value,
+  attempts: (migration, value) => attemptBucketOf(migration) === value,
+  warnings: (migration, value) => warningBucketOf(migration) === value,
+  duration: (migration, value) => durationBucketOf(migration) === value,
 };
 
 const DIMENSION_LABELS = {
@@ -21,6 +36,11 @@ const DIMENSION_LABELS = {
   org: "Organization",
   state: "State",
   workflowState: "Workflow",
+  sourcePlatform: "Source",
+  onboarding: "Onboarding",
+  attempts: "Attempts",
+  warnings: "Warnings",
+  duration: "Duration",
 };
 
 // Filters are `{ dimension: [value, ...] }`. Within a dimension the values are

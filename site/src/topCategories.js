@@ -31,12 +31,13 @@ function sumRows(rows, xKey, label) {
 
 // Returns { rows, hidden } where `hidden` is how many categories the "Other"
 // row stands for (0 when everything fits). `expanded` shows every category
-// while still keeping the pinned buckets last.
-function limitCategories(data, xKey, { limit = DEFAULT_LIMIT, expanded = false } = {}) {
+// while still keeping the pinned buckets last. `ordered` keeps the data's own
+// order, for a breakdown whose sequence is the point (a distribution read
+// largest-first is not a distribution).
+function limitCategories(data, xKey, { limit = DEFAULT_LIMIT, expanded = false, ordered = false } = {}) {
   const pinned = data.filter((row) => PINNED.has(row[xKey]));
-  const named = data
-    .filter((row) => !PINNED.has(row[xKey]))
-    .sort((a, b) => totalOf(b, xKey) - totalOf(a, xKey));
+  const rest = data.filter((row) => !PINNED.has(row[xKey]));
+  const named = ordered ? rest : [...rest].sort((a, b) => totalOf(b, xKey) - totalOf(a, xKey));
 
   // "Other (1 more)" takes the row it would save, so only fold two or more.
   if (expanded || named.length <= limit + 1) {
@@ -44,9 +45,9 @@ function limitCategories(data, xKey, { limit = DEFAULT_LIMIT, expanded = false }
   }
 
   const shown = named.slice(0, limit);
-  const rest = named.slice(limit);
-  const other = sumRows(rest, xKey, `Other (${rest.length} more)`);
-  return { rows: [...shown, other, ...pinned], hidden: rest.length };
+  const folded = named.slice(limit);
+  const other = sumRows(folded, xKey, `Other (${folded.length} more)`);
+  return { rows: [...shown, other, ...pinned], hidden: folded.length };
 }
 
 export { limitCategories, DEFAULT_LIMIT, PINNED };

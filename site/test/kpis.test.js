@@ -6,9 +6,11 @@ import {
   stateBreakdown,
   teamBreakdown,
   orgBreakdown,
+  onboardingBreakdown,
   workflowTotals,
   workflowTeamBreakdown,
   workflowOrgBreakdown,
+  workflowPlatformBreakdown,
 } from "../src/kpis.js";
 
 const rows = [
@@ -83,6 +85,20 @@ test("workflowTeamBreakdown and workflowOrgBreakdown only include repos with wor
   assert.equal(byOrg[0].idle, 3);
 });
 
+// Workflow health against where the code came from, which a repository-level
+// success count cannot show: both these migrations succeeded.
+test("workflowPlatformBreakdown splits workflow health by source system", () => {
+  const platformRows = [
+    { ...rows[0], sourceType: "GitLab Source", sourceUrl: "https://gitlab.dev/a/b" },
+    { ...rows[1], sourceType: "Azure DevOps Source", sourceUrl: "https://dev.azure.com/o/p/_git/r" },
+    { ...rows[2], sourceType: "GitLab Source", sourceUrl: "https://gitlab.dev/a/c" },
+  ];
+  assert.deepEqual(workflowPlatformBreakdown(platformRows), [
+    { sourcePlatform: "Azure DevOps", succeeded: 1, failing: 0, idle: 3 },
+    { sourcePlatform: "GitLab", succeeded: 2, failing: 1, idle: 0 },
+  ]);
+});
+
 test("filterByRange keeps only rows within the window, 'all' returns everything", () => {
   const now = Date.parse("2026-09-01T00:00:00Z");
   const dated = [
@@ -96,4 +112,25 @@ test("filterByRange keeps only rows within the window, 'all' returns everything"
   assert.equal(filterByRange(dated, "month", now).length, 2);
   assert.equal(filterByRange(dated, "week", now).length, 1);
   assert.equal(filterByRange(dated, "day", now).length, 1);
+});
+
+// Onboarding is measured against each repository's own window, so narrowing it
+// by migration date on top of that would hide the repositories whose window
+// closed long ago without their workflows coming back — the overdue ones.
+test("onboarding counts do not depend on the selected time range", () => {
+  const now = Date.parse("2026-09-01T00:00:00Z");
+  const rows = [
+    { createdAt: "2026-01-01T00:00:00Z", onboarding: "incomplete" },
+    { createdAt: "2026-03-01T00:00:00Z", onboarding: "complete" },
+    { createdAt: "2026-08-28T00:00:00Z", onboarding: "in-progress" },
+  ];
+  const scoped = onboardingBreakdown(rows);
+  assert.deepEqual(scoped, { inProgress: 1, complete: 1, incomplete: 1 });
+  // Through the range filter the two settled repositories would disappear, and
+  // the one left would report nothing outstanding.
+  assert.deepEqual(onboardingBreakdown(filterByRange(rows, "week", now)), {
+    inProgress: 1,
+    complete: 0,
+    incomplete: 0,
+  });
 });

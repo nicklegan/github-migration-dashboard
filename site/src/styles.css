@@ -69,6 +69,14 @@
   --chart-queued: light-dark(#0969da, #539bf5);
   --chart-paused: light-dark(#6e7781, #768390);
   --chart-pending: light-dark(#8250df, #b083f0);
+  /* Categories with no colour of their own (source platforms): six hues that
+     stay apart from the success/failure pair. */
+  --chart-cat-1: light-dark(#0969da, #539bf5);
+  --chart-cat-2: light-dark(#bf8700, #c69026);
+  --chart-cat-3: light-dark(#8250df, #986ee2);
+  --chart-cat-4: light-dark(#1b7c83, #39c5cf);
+  --chart-cat-5: light-dark(#bf3989, #e275ad);
+  --chart-cat-6: light-dark(#953800, #e0823d);
 
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
   --radius: 6px;
@@ -434,7 +442,6 @@ td .label, td .counter-sm { margin-left: 8px; vertical-align: middle; }
   border-radius: var(--radius);
   overflow: hidden;
 }
-.stat-bank-wide { grid-column: 1 / -1; }
 
 .stat-bank-head {
   display: flex;
@@ -449,9 +456,8 @@ td .label, td .counter-sm { margin-left: 8px; vertical-align: middle; }
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(var(--stat-columns, 3), 1fr);
 }
-.stat-bank-wide .stat-grid { grid-template-columns: repeat(5, 1fr); }
 
 .stat {
   display: flex;
@@ -464,10 +470,11 @@ td .label, td .counter-sm { margin-left: 8px; vertical-align: middle; }
 }
 .stat-grid .stat:nth-child(3n) { border-right: 0; }
 .stat-grid .stat:nth-last-child(-n + 3) { border-bottom: 0; }
-.stat-bank-wide .stat-grid .stat:nth-child(3n) { border-right: 1px solid var(--border-muted); }
-.stat-bank-wide .stat-grid .stat:nth-child(5n),
-.stat-bank-wide .stat-grid .stat:last-child { border-right: 0; }
-.stat-bank-wide .stat-grid .stat { border-bottom: 0; }
+/* One full-width row: only the last tile drops its divider. */
+.stat-bank-row { grid-column: 1 / -1; }
+.stat-bank-row .stat-grid .stat { border-bottom: 0; }
+.stat-bank-row .stat-grid .stat:nth-child(3n) { border-right: 1px solid var(--border-muted); }
+.stat-bank-row .stat-grid .stat:last-child { border-right: 0; }
 
 .stat-label { font-size: 12px; color: var(--fg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stat-value { font-size: 28px; font-weight: 600; line-height: 1.15; color: var(--fg-emphasis); font-variant-numeric: tabular-nums; letter-spacing: -0.3px; }
@@ -488,6 +495,7 @@ td .label, td .counter-sm { margin-left: 8px; vertical-align: middle; }
   font-weight: 600;
   border-bottom: 1px solid var(--border-muted);
 }
+.section-note { margin-left: 10px; font-size: 12px; font-weight: 400; color: var(--fg-muted); }
 
 .charts {
   display: grid;
@@ -496,6 +504,9 @@ td .label, td .counter-sm { margin-left: 8px; vertical-align: middle; }
   margin-bottom: 28px;
 }
 .charts-full { grid-template-columns: 1fr; }
+.chart-card-wide { grid-column: 1 / -1; }
+/* Consecutive rows inside one section read as one block, not as two groups. */
+.charts + .charts { margin-top: -12px; }
 
 .chart-card,
 .table-section {
@@ -516,6 +527,7 @@ td .label, td .counter-sm { margin-left: 8px; vertical-align: middle; }
 }
 
 .chart-subtitle { margin: 0 0 8px; font-size: 12px; color: var(--fg-muted); }
+.chart-footnote { margin: 4px 0 0; font-size: 11px; color: var(--fg-muted); }
 .chart-head { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
 .chart-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .chart-empty { padding: 48px 0; font-size: 13px; color: var(--fg-muted); text-align: center; }
@@ -604,7 +616,9 @@ tbody tr.is-expanded > td { background: var(--canvas-subtle); }
 th {
   position: sticky;
   top: 0;
-  z-index: 1;
+  /* Above the attempt timeline dots, which also stack, or rows scrolling under
+     the header would be drawn over it. */
+  z-index: 2;
   font-size: 12px;
   font-weight: 600;
   color: var(--fg-muted);
@@ -761,10 +775,12 @@ td a:hover { text-decoration: underline; }
 
 @media (max-width: 900px) {
   .stat-banks { grid-template-columns: 1fr; }
-  .stat-bank-wide .stat-grid { grid-template-columns: repeat(3, 1fr); }
-  .stat-bank-wide .stat-grid .stat { border-bottom: 1px solid var(--border-muted); }
-  .stat-bank-wide .stat-grid .stat:nth-child(5n) { border-right: 1px solid var(--border-muted); }
-  .stat-bank-wide .stat-grid .stat:nth-child(3n) { border-right: 0; }
+  /* The column count is an inline custom property, which a variable override
+     here could not beat; set the resolved property instead. */
+  .stat-bank-row .stat-grid { grid-template-columns: repeat(3, 1fr); }
+  .stat-bank-row .stat-grid .stat { border-bottom: 1px solid var(--border-muted); }
+  .stat-bank-row .stat-grid .stat:nth-child(3n) { border-right: 0; }
+  .stat-bank-row .stat-grid .stat:nth-last-child(-n + 3) { border-bottom: 0; }
   .input-icon input { width: 220px; }
   .subhead { flex-direction: column; align-items: flex-start; }
   .app-header-context { display: none; }

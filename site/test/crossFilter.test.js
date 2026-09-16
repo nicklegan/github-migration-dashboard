@@ -18,6 +18,35 @@ const rows = [
   { repository: "d", organization: "org-b", state: "FAILED", team: null, workflows: { succeeded: 1, failing: 0, idle: 0 } },
 ];
 
+// A distribution's bars stand for ranges, so selecting one has to match every
+// row whose value falls in that range rather than a value the row carries.
+const distributionRows = [
+  { repository: "a", attemptCount: 1, warningsCount: 0, durationMinutes: 1, onboarding: "complete", sourceType: "GitLab Source", sourceUrl: "https://gitlab.dev/a/b" },
+  { repository: "b", attemptCount: 6, warningsCount: 30, durationMinutes: 45, onboarding: "incomplete", sourceType: "GHEC Source", sourceUrl: "https://github.com/o/r" },
+  { repository: "c", attemptCount: 35, warningsCount: 1338, durationMinutes: null, onboarding: null, sourceType: "team/project", sourceUrl: "https://scm.dev/a/b" },
+];
+
+const matched = (filters) => applyFilters(distributionRows, filters).map((r) => r.repository);
+
+test("a bucket selection matches every row in that range", () => {
+  assert.deepEqual(matched({ attempts: ["4–9"] }), ["b"]);
+  assert.deepEqual(matched({ attempts: ["1", "10 or more"] }), ["a", "c"]);
+  assert.deepEqual(matched({ warnings: ["Over 200"] }), ["c"]);
+  assert.deepEqual(matched({ duration: ["16–60 min"] }), ["b"]);
+});
+
+test("a row outside every bucket of a dimension is filtered out by it", () => {
+  // c has no recorded duration, so no duration selection can include it.
+  assert.deepEqual(matched({ duration: ["Under 2 min", "16–60 min", "Over an hour"] }), ["a", "b"]);
+});
+
+test("source platform and onboarding filter on their labels", () => {
+  assert.deepEqual(matched({ sourcePlatform: ["GitLab"] }), ["a"]);
+  assert.deepEqual(matched({ sourcePlatform: ["Unknown"] }), ["c"]);
+  assert.deepEqual(matched({ onboarding: ["Incomplete"] }), ["b"]);
+  assert.deepEqual(matched({ onboarding: ["Onboarded", "Incomplete"] }), ["a", "b"]);
+});
+
 test("applyFilters returns every row when nothing is selected", () => {
   assert.equal(applyFilters(rows, {}).length, 4);
   assert.equal(applyFilters(rows, null).length, 4);
@@ -54,8 +83,7 @@ test("applyFilters maps missing team and organization to their fallback labels",
   );
 });
 
-test("applyFilters matches rows contributing at least one workflow to a workflow state", () => {
-  assert.deepEqual(
+test("applyFilters matches rows contributing at least one workflow to a workflow state", () => {  assert.deepEqual(
     applyFilters(rows, { workflowState: "Failing" }).map((r) => r.repository),
     ["a"],
   );

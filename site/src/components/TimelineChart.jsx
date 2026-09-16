@@ -58,6 +58,7 @@ export default function TimelineChart({
     ["all", "All"],
     ["org", "Organization"],
     ["team", teamLabel],
+    ["sourcePlatform", "Source"],
   ];
 
   const options = useMemo(() => groupValues(rows, groupBy), [rows, groupBy]);
@@ -125,7 +126,7 @@ export default function TimelineChart({
           {groupBy !== "all" && options.length > 0 && (
             <select
               className="select-sm"
-              aria-label={groupBy === "org" ? "Organization" : teamLabel}
+              aria-label={groups.find(([key]) => key === groupBy)?.[1] ?? "Group"}
               value={selected ?? ""}
               onChange={(event) => setGroupValue(event.target.value)}
             >

@@ -1,6 +1,8 @@
 // Time-series shaping for the progress charts. Pure — no React, no recharts —
 // so the bucketing and scaling rules unit-test directly.
 
+import { platformLabelOf } from "./distributions.js";
+
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
@@ -144,6 +146,7 @@ function niceScale(max, targetTicks = 4) {
 function groupOf(row, dimension) {
   if (dimension === "team") return row.team || "Unassigned";
   if (dimension === "org") return row.organization || "Unknown";
+  if (dimension === "sourcePlatform") return platformLabelOf(row);
   return null;
 }
 

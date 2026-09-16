@@ -2,6 +2,7 @@
 // breakdowns. No React or DOM here so it unit-tests directly.
 
 import { ONGOING_STATES } from "../../src/states.js";
+import { platformLabelOf } from "./distributions.js";
 
 
 const RANGE_MS = {
@@ -146,6 +147,13 @@ function workflowOrgBreakdown(migrations) {
   return workflowGroupBy(migrations, (m) => m.organization || "Unknown", "org");
 }
 
+// Workflow health against where the code came from: an importer that carries
+// history badly shows up here as workflows that never run, not as a failed
+// migration.
+function workflowPlatformBreakdown(migrations) {
+  return workflowGroupBy(migrations, platformLabelOf, "sourcePlatform");
+}
+
 function workflowGroupBy(migrations, keyOf, keyName) {
   const groups = new Map();
   for (const m of migrations) {
@@ -177,4 +185,5 @@ export {
   workflowTotals,
   workflowTeamBreakdown,
   workflowOrgBreakdown,
+  workflowPlatformBreakdown,
 };

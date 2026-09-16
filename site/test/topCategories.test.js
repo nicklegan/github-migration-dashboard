@@ -57,3 +57,21 @@ test("expanded shows every category and still pins the catch-all last", () => {
   assert.equal(rows.length, 13);
   assert.equal(rows.at(-1).org, "Unknown");
 });
+
+// A distribution's rows are ordered by the range they stand for, so ranking
+// them by size would scramble the very thing the chart shows.
+test("ordered keeps the data's own sequence", () => {
+  const bucket = (label, repositories) => ({ duration: label, repositories });
+  const data = [bucket("Under 2 min", 3), bucket("2–5 min", 40), bucket("Over an hour", 1)];
+  const { rows } = limitCategories(data, "duration", { ordered: true });
+  assert.deepEqual(rows.map((r) => r.duration), ["Under 2 min", "2–5 min", "Over an hour"]);
+
+  const { rows: ranked } = limitCategories(data, "duration");
+  assert.deepEqual(ranked.map((r) => r.duration), ["2–5 min", "Under 2 min", "Over an hour"]);
+});
+
+test("limitCategories does not reorder the array it was given", () => {
+  const data = [{ team: "A", n: 1 }, { team: "B", n: 5 }];
+  limitCategories(data, "team");
+  assert.deepEqual(data.map((r) => r.team), ["A", "B"]);
+});

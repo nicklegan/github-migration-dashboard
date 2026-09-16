@@ -24,6 +24,21 @@ const TOKENS = [
   "--chart-queued",
   "--chart-paused",
   "--chart-pending",
+  "--chart-cat-1",
+  "--chart-cat-2",
+  "--chart-cat-3",
+  "--chart-cat-4",
+  "--chart-cat-5",
+  "--chart-cat-6",
+];
+
+const CATEGORICAL = [
+  "--chart-cat-1",
+  "--chart-cat-2",
+  "--chart-cat-3",
+  "--chart-cat-4",
+  "--chart-cat-5",
+  "--chart-cat-6",
 ];
 
 // Only reached when there is no document to read from (tests, server rendering).
@@ -38,6 +53,7 @@ const FALLBACK = {
   DANGER: "#e5534b",
   NEUTRAL: "#636e7b",
   ATTENTION: "#c69026",
+  categorical: ["#539bf5", "#c69026", "#986ee2", "#39c5cf", "#e275ad", "#e0823d"],
   stateColors: {},
   tooltipProps: {},
   legendProps: {},
@@ -85,6 +101,7 @@ function readChartTheme() {
     DANGER: token("--chart-danger"),
     NEUTRAL: token("--chart-neutral"),
     ATTENTION: token("--chart-in-progress"),
+    categorical: CATEGORICAL.map(token),
     stateColors: {
       SUCCEEDED: token("--chart-success"),
       FAILED: token("--chart-danger"),

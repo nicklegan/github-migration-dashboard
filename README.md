@@ -21,19 +21,28 @@ secrets, variables, environments, and runners are not. To show whether a migrate
 repository is actually working, the dashboard also inventories its Actions
 workflows and reports whether they have run successfully since the move.
 
-| Tab                       | What it shows                                                              |
-| :------------------------ | :------------------------------------------------------------------------- |
-| **Overview**              | KPI cards, breakdowns by org/state/team, and two progress-over-time charts |
-| **Repository migrations** | One row per target repository; expand to see every attempt                 |
-| **Workflow migrations**   | One row per repository; expand to see each Actions workflow and its status |
+| Tab                       | What it shows                                                                                    |
+| :------------------------ | :----------------------------------------------------------------------------------------------- |
+| **Overview**              | KPI cards, breakdowns by organization, team, or source platform, distributions, and onboarding |
+| **Repository migrations** | One row per target repository; expand to see every attempt                                       |
+| **Workflow migrations**   | One row per repository; expand to see each Actions workflow and its status                       |
+
+The overview reads in three sections. **Repositories** covers what moved and
+how it went: the breakdowns, then distributions of attempts, warnings, and
+duration, and a size-against-duration plot that shows which repositories cost
+more time than their size explains. **Actions workflows** covers whether what
+moved still runs. **Onboarding** measures every migration against its window,
+whatever the selected time range.
 
 Every chart is a filter: click a bar segment to select that organization or
 team in that state, the name beside the bar to select the whole organization or
-team, and a slice or legend entry to select a state. Click again to deselect.
-Selections accumulate — pick several organizations to compare them — and every
-other chart, the KPI cards, and the tables follow. Bar charts show the ten
-largest organizations or teams and roll the rest into an **Other** row that
-selects them all at once; **Show all** expands the full list.
+team, and a slice or legend entry to select a state. Distribution bars select
+their bucket, so **10 or more** attempts or **Over 200** warnings narrows
+everything to the tail. Click again to deselect. Selections accumulate — pick
+several organizations to compare them — and every other chart, the KPI cards,
+and the tables follow. Bar charts show the ten largest organizations or teams
+and roll the rest into an **Other** row that selects them all at once;
+**Show all** expands the full list.
 
 ![A walkthrough of the dashboard: the overview's KPI cards and breakdowns, a chart filtering everything else, a repository's migration attempts unfolding, and a repository's Actions workflows with their status](docs/dashboard.gif)
 

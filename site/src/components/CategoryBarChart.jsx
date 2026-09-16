@@ -24,6 +24,10 @@ import { limitCategories, DEFAULT_LIMIT } from "../topCategories.js";
 // (`xKey` doubles as the filter dimension) AND its series; the category name on
 // the axis selects the whole bar; a legend entry selects just that series.
 // Selections accumulate so several organizations or teams can be compared.
+//
+// One measure is usually worth breaking down several ways — by organization, by
+// team, by source. Passing `groups` as [{ key, label, data }] puts those behind
+// a toggle in one card, rather than repeating the chart once per dimension.
 const ROW_HEIGHT = 28;
 const LEGEND_HEIGHT = 28;
 const AXIS_HEIGHT = 24;
@@ -48,12 +52,15 @@ function labelWidth(rows, xKey) {
 export default function CategoryBarChart({
   title,
   subtitle,
-  data,
-  xKey,
+  data: singleData,
+  xKey: singleKey,
+  activeValues: singleActiveValues = [],
+  groups,
+  activeValuesFor,
   series,
   stacked,
   limit = DEFAULT_LIMIT,
-  activeValues = [],
+  ordered = false,
   seriesDimension,
   activeSeriesValues = [],
   onSelect,
@@ -61,10 +68,18 @@ export default function CategoryBarChart({
 }) {
   const { tooltipProps, legendProps, AXIS_TICK, AXIS_LINE, LABEL, GRID, CURSOR } = useChartTheme();
   const [expanded, setExpanded] = useState(false);
+  const [dimension, setDimension] = useState(groups?.[0]?.key ?? null);
+
+  // A cross-filter can remove the selected dimension's data; falling back to the
+  // first group beats rendering an empty chart with no explanation.
+  const group = groups ? (groups.find((g) => g.key === dimension) ?? groups[0]) : null;
+  const data = group ? group.data : singleData;
+  const xKey = group ? group.key : singleKey;
+  const activeValues = group ? (activeValuesFor?.(group.key) ?? []) : singleActiveValues;
 
   const { rows, hidden } = useMemo(
-    () => limitCategories(data, xKey, { limit, expanded }),
-    [data, xKey, limit, expanded],
+    () => limitCategories(data, xKey, { limit, expanded, ordered }),
+    [data, xKey, limit, expanded, ordered],
   );
   const total = data.length;
   const canToggle = hidden > 0 || (expanded && total > limit);
@@ -144,7 +159,9 @@ export default function CategoryBarChart({
 
   // Height follows the row count so rows sit at the same pitch in every chart;
   // a chart with three rows is short and top-aligned, not stretched.
-  const height = rows.length * ROW_HEIGHT + LEGEND_HEIGHT + AXIS_HEIGHT + 16;
+  // A single series needs no legend — it would only repeat the title.
+  const showLegend = series.length > 1;
+  const height = rows.length * ROW_HEIGHT + (showLegend ? LEGEND_HEIGHT : 0) + AXIS_HEIGHT + 16;
 
   return (
     <div className="chart-card">
@@ -153,11 +170,31 @@ export default function CategoryBarChart({
           <h2>{title}</h2>
           {subtitle && <p className="chart-subtitle">{subtitle}</p>}
         </div>
-        {canToggle && (
-          <button type="button" className="link-button" onClick={() => setExpanded((v) => !v)}>
-            {expanded ? `Show top ${limit}` : `Show all ${total}`}
-          </button>
-        )}
+        <div className="chart-controls">
+          {groups && groups.length > 1 && (
+            <div className="segmented segmented-sm" role="group" aria-label={`${title} grouping`}>
+              {groups.map((g) => (
+                <button
+                  key={g.key}
+                  type="button"
+                  className={`segment${g.key === xKey ? " is-active" : ""}`}
+                  aria-pressed={g.key === xKey}
+                  onClick={() => {
+                    setDimension(g.key);
+                    setExpanded(false);
+                  }}
+                >
+                  {g.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {canToggle && (
+            <button type="button" className="link-button" onClick={() => setExpanded((v) => !v)}>
+              {expanded ? `Show top ${limit}` : `Show all ${total}`}
+            </button>
+          )}
+        </div>
       </div>
       {rows.length === 0 ? (
         <p className="chart-empty">No data</p>
@@ -190,19 +227,21 @@ export default function CategoryBarChart({
               width={labelWidth(rows, xKey)}
             />
             <Tooltip cursor={{ fill: CURSOR }} {...tooltipProps} />
-            <Legend
-              verticalAlign="top"
-              height={LEGEND_HEIGHT}
-              iconType="circle"
-              iconSize={8}
-              {...legendProps}
-              formatter={legendFormatter}
-              onClick={onSelect && seriesDimension ? handleLegendClick : undefined}
-              wrapperStyle={{
-                ...legendProps.wrapperStyle,
-                cursor: onSelect && seriesDimension ? "pointer" : undefined,
-              }}
-            />
+            {showLegend && (
+              <Legend
+                verticalAlign="top"
+                height={LEGEND_HEIGHT}
+                iconType="circle"
+                iconSize={8}
+                {...legendProps}
+                formatter={legendFormatter}
+                onClick={onSelect && seriesDimension ? handleLegendClick : undefined}
+                wrapperStyle={{
+                  ...legendProps.wrapperStyle,
+                  cursor: onSelect && seriesDimension ? "pointer" : undefined,
+                }}
+              />
+            )}
             {series.map((s, index) => (
               <Bar
                 key={s.key}

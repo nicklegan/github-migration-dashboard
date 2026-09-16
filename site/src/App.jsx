@@ -11,7 +11,18 @@ import {
   workflowTotals,
   workflowTeamBreakdown,
   workflowOrgBreakdown,
+  workflowPlatformBreakdown,
 } from "./kpis.js";
+import {
+  attemptBreakdown,
+  warningBreakdown,
+  durationBreakdown,
+  platformBreakdown,
+  onboardingTeamBreakdown,
+  onboardingOrgBreakdown,
+  onboardingPlatformBreakdown,
+  sizeDurationSeries,
+} from "./distributions.js";
 import {
   applyFilters,
   toggleSelections,
@@ -21,10 +32,11 @@ import {
   DIMENSION_LABELS,
 } from "./crossFilter.js";
 import { workflowGroups, workflowCount } from "./groupWorkflows.js";
-import KpiCards from "./components/KpiCards.jsx";
+import { RepositoryCards, WorkflowCards, OnboardingCards } from "./components/KpiCards.jsx";
 import TabBar from "./components/TabBar.jsx";
 import DonutChart from "./components/DonutChart.jsx";
 import CategoryBarChart from "./components/CategoryBarChart.jsx";
+import SizeDurationChart from "./components/SizeDurationChart.jsx";
 import TimeFilter from "./components/TimeFilter.jsx";
 import CrossFilterBar from "./components/CrossFilterBar.jsx";
 import MigrationsTable from "./components/MigrationsTable.jsx";
@@ -53,8 +65,16 @@ function workflowTimelineCounts(row) {
   };
 }
 
+// Onboarded, still inside its window, and window closed with workflows that
+// never ran — the last of which is the only one anyone has to act on.
+const ONBOARDING_SERIES = (green, red, amber) => [
+  { key: "complete", name: "Onboarded", color: green, filterValue: "Onboarded" },
+  { key: "inProgress", name: "Onboarding", color: amber, filterValue: "Onboarding" },
+  { key: "incomplete", name: "Incomplete", color: red, filterValue: "Incomplete" },
+];
+
 export default function App() {
-  const { SUCCESS: GREEN, DANGER: RED, NEUTRAL: GRAY, stateColors } = useChartTheme();
+  const { SUCCESS: GREEN, DANGER: RED, NEUTRAL: GRAY, ATTENTION: AMBER, categorical, stateColors } = useChartTheme();
   const [summary, setSummary] = useState(null);
   const [data, setData] = useState(null);
   const [progress, setProgress] = useState(null);
@@ -114,6 +134,11 @@ export default function App() {
     // Each visual sees every selection except its own dimension, so it keeps its
     // full breakdown and highlights the selected element instead of collapsing.
     const rowsFor = (except) => applyFilters(inRange, filters, except);
+    // Onboarding carries its own window, so the time range does not apply to it:
+    // a range shorter than the window could hold nothing but repositories still
+    // onboarding, and a longer one would hide the oldest repositories that never
+    // came back online — the ones most overdue. Cross-filters still apply.
+    const scopeFor = (except) => applyFilters(present, filters, except);
     const migrations = rowsFor();
     const workflows = workflowTotals(migrations);
     const byState = rowsFor("state");
@@ -126,6 +151,14 @@ export default function App() {
     const week = showDeltas ? filterByRange(applyFilters(present, filters), "week", nowMs) : [];
     const weekKpis = computeKpis(week);
     const weekWorkflows = workflowTotals(week);
+    // One colour per platform, ranked over the whole selection, so the donut and
+    // the scatter agree on what blue means.
+    const platforms = platformBreakdown(rowsFor("sourcePlatform"));
+    const colorByPlatform = new Map(
+      platforms.map((p, i) => [p.sourcePlatform, categorical[i % categorical.length]]),
+    );
+    const platformColor = (name) => colorByPlatform.get(name) ?? GRAY;
+    const scatter = sizeDurationSeries(migrations);
     return {
       migrations,
       deltas: showDeltas
@@ -140,7 +173,10 @@ export default function App() {
       workflowCount: workflowCount(workflowGroups(migrations)),
       kpis: computeKpis(migrations),
       workflows,
-      onboarding: onboardingBreakdown(migrations),
+      scope: {
+        ...onboardingBreakdown(scopeFor()),
+        ...workflowTotals(scopeFor()),
+      },
       repoState: stateBreakdown(byState)
         .filter((s) => s.state === "SUCCEEDED" || s.state === "FAILED" || s.state === "SUPERSEDED")
         .map((s) => ({ name: s.state, value: s.count, color: stateColors[s.state] || GRAY })),
@@ -151,6 +187,23 @@ export default function App() {
       })),
       repoTeams: teamBreakdown(rowsFor(["team", "state"])),
       repoOrgs: orgBreakdown(rowsFor(["org", "state"])),
+      sourcePlatforms: platformBreakdown(rowsFor(["sourcePlatform", "state"])),
+      platformSlices: platforms.map((p) => ({
+        name: p.sourcePlatform,
+        value: p.succeeded + p.failed + p.other,
+        color: platformColor(p.sourcePlatform),
+      })),
+      sizeDuration: {
+        ...scatter,
+        series: scatter.series.map((s) => ({ ...s, color: platformColor(s.platform) })),
+      },
+      attempts: attemptBreakdown(rowsFor(["attempts", "state"])),
+      warnings: warningBreakdown(rowsFor("warnings")),
+      durations: durationBreakdown(rowsFor("duration")),
+      onboardingTeams: onboardingTeamBreakdown(scopeFor(["team", "onboarding"])),
+      onboardingOrgs: onboardingOrgBreakdown(scopeFor(["org", "onboarding"])),
+      onboardingPlatforms: onboardingPlatformBreakdown(scopeFor(["sourcePlatform", "onboarding"])),
+      workflowPlatforms: workflowPlatformBreakdown(rowsFor(["sourcePlatform", "workflowState"])),
       workflowTeams: workflowTeamBreakdown(rowsFor(["team", "workflowState"])),
       workflowOrgs: workflowOrgBreakdown(rowsFor(["org", "workflowState"])),
       workflowState: [
@@ -159,7 +212,7 @@ export default function App() {
         { name: "Idle", value: byWorkflowState.idle, color: GRAY },
       ],
     };
-  }, [data, range, nowMs, filters, showRemoved, stateColors, GREEN, RED, GRAY]);
+  }, [data, range, nowMs, filters, showRemoved, stateColors, GREEN, RED, GRAY, categorical]);
 
   if (error) return <main className="app"><p className="error">{error}</p></main>;
   if (!summary) {
@@ -182,6 +235,15 @@ export default function App() {
   const windowDays = summary.onboardingWindowDays ?? 0;
   const clearFilters = () => setFilters({});
   const selected = (dimension) => selectedValues(filters, dimension);
+  // The same measure broken down three ways, for the charts' dimension toggle.
+  // A breakdown with no data yet is left out rather than offered as an empty
+  // tab: source platform is only known once the rows have streamed in.
+  const breakdownGroups = ({ org, team, sourcePlatform }) =>
+    [
+      { key: "org", label: "Organization", data: org },
+      { key: "team", label: teamLabel, data: team },
+      { key: "sourcePlatform", label: "Source", data: sourcePlatform },
+    ].filter((group) => group.data);
 
   return (
     <>
@@ -231,25 +293,21 @@ export default function App() {
         </div>
       )}
 
-      <KpiCards
-        kpis={kpis}
-        workflows={workflowTotalsView}
-        onboarding={views ? views.onboarding : summary.onboarding}
-        windowDays={windowDays}
-        deltas={views?.deltas}
-      />
-
       {tab === "overview" && (
       <div role="tabpanel" id="panel-overview" aria-labelledby="tab-overview">
       <h2 className="section-title">Repositories</h2>
+      <RepositoryCards kpis={kpis} deltas={views?.deltas} />
       <section className="charts">
         <CategoryBarChart
-          title="By organization"
-          subtitle="Repositories migrated per organization"
-          data={views ? views.repoOrgs : summaryGroups(summary.orgs, "org")}
-          xKey="org"
+          title="Migrations"
+          subtitle="Repositories migrated, and how they ended"
+          groups={breakdownGroups({
+            org: views ? views.repoOrgs : summaryGroups(summary.orgs, "org"),
+            team: views ? views.repoTeams : summaryGroups(summary.teams, "team"),
+            sourcePlatform: views?.sourcePlatforms,
+          })}
+          activeValuesFor={selected}
           stacked
-          activeValues={selected("org")}
           seriesDimension="state"
           activeSeriesValues={selected("state")}
           onSelect={views ? select : undefined}
@@ -266,33 +324,109 @@ export default function App() {
           activeValues={selected("state")}
           onSelect={views ? (value) => select([{ dimension: "state", value }]) : undefined}
         />
-        <CategoryBarChart
-          title={`By ${teamWord}`}
-          subtitle={`Repositories migrated per ${teamWord}`}
-          data={views ? views.repoTeams : summaryGroups(summary.teams, "team")}
-          xKey="team"
-          stacked
-          activeValues={selected("team")}
-          seriesDimension="state"
-          activeSeriesValues={selected("state")}
-          onSelect={views ? select : undefined}
-          onSelectCombination={views ? selectCombination : undefined}
-          series={[
-            { key: "succeeded", name: "Successful", color: GREEN, filterValue: "SUCCEEDED" },
-            { key: "failed", name: "Failed", color: RED, filterValue: "FAILED" },
-          ]}
-        />
+        {views && (
+          <DonutChart
+            title="By source platform"
+            subtitle="Where the repositories came from"
+            data={views.platformSlices}
+            activeValues={selected("sourcePlatform")}
+            onSelect={(value) => select([{ dimension: "sourcePlatform", value }])}
+          />
+        )}
       </section>
 
-      <h2 className="section-title">Actions workflows</h2>
+      {views && (
+        <>
+          <section className="charts">
+            <CategoryBarChart
+              title="By attempts"
+              subtitle="How many runs it took to migrate a repository"
+              data={views.attempts}
+              xKey="attempts"
+              stacked
+              ordered
+              activeValues={selected("attempts")}
+              seriesDimension="state"
+              activeSeriesValues={selected("state")}
+              onSelect={select}
+              onSelectCombination={selectCombination}
+              series={[
+                { key: "succeeded", name: "Successful", color: GREEN, filterValue: "SUCCEEDED" },
+                { key: "failed", name: "Failed", color: RED, filterValue: "FAILED" },
+                { key: "other", name: "Other", color: GRAY },
+              ]}
+            />
+            <CategoryBarChart
+              title="By warnings"
+              subtitle="Repositories whose migration reported items to review"
+              data={views.warnings}
+              xKey="warnings"
+              ordered
+              activeValues={selected("warnings")}
+              onSelect={select}
+              series={[{ key: "repositories", name: "Repositories", color: AMBER }]}
+            />
+            <CategoryBarChart
+              title="By duration"
+              subtitle={`How long migrations ran (${kpis.durationSamples.toLocaleString()} of ${kpis.total.toLocaleString()} recorded)`}
+              data={views.durations}
+              xKey="duration"
+              ordered
+              activeValues={selected("duration")}
+              onSelect={select}
+              series={[{ key: "repositories", name: "Repositories", color: GREEN }]}
+            />
+          </section>
+
+          <section className="charts">
+            <SizeDurationChart
+              title="Size and duration"
+              subtitle="How long a repository took, against how big it is"
+              series={views.sizeDuration.series}
+              footnote={`${views.sizeDuration.plotted.toLocaleString()} of ${views.sizeDuration.total.toLocaleString()} repositories have both a size and a duration recorded.`}
+            />
+          </section>
+        </>
+      )}
+
+      {views ? (
+        <section className="charts charts-full">
+          <TimelineChart
+            title="Over time"
+            subtitle="Migrations by state"
+            rows={views.migrations}
+            range={range}
+            nowMs={nowMs}
+            series={repoTimelineSeries}
+            countsOf={repoTimelineCounts}
+            teamLabel={teamLabel}
+            windowDays={windowDays}
+          />
+        </section>
+      ) : (
+        <RowsLoading progress={progress} />
+      )}
+
+      <h2 className="section-title">
+        Actions workflows
+        {windowDays > 0 && (
+          <span className="section-note">
+            The {windowDays}-day window decides which workflows count
+          </span>
+        )}
+      </h2>
+      <WorkflowCards workflows={workflowTotalsView} windowDays={windowDays} deltas={views?.deltas} />
       <section className="charts">
         <CategoryBarChart
-          title="By organization"
-          subtitle="Workflow health per organization"
-          data={views ? views.workflowOrgs : summaryWorkflowGroups(summary.orgs, "org")}
-          xKey="org"
+          title="Workflow health"
+          subtitle="Whether the workflows that came over still run"
+          groups={breakdownGroups({
+            org: views ? views.workflowOrgs : summaryWorkflowGroups(summary.orgs, "org"),
+            team: views ? views.workflowTeams : summaryWorkflowGroups(summary.teams, "team"),
+            sourcePlatform: views?.workflowPlatforms,
+          })}
+          activeValuesFor={selected}
           stacked
-          activeValues={selected("org")}
           seriesDimension="workflowState"
           activeSeriesValues={selected("workflowState")}
           onSelect={views ? select : undefined}
@@ -310,41 +444,12 @@ export default function App() {
           activeValues={selected("workflowState")}
           onSelect={views ? (value) => select([{ dimension: "workflowState", value }]) : undefined}
         />
-        <CategoryBarChart
-          title={`By ${teamWord}`}
-          subtitle={`Workflow health per ${teamWord}`}
-          data={views ? views.workflowTeams : summaryWorkflowGroups(summary.teams, "team")}
-          xKey="team"
-          stacked
-          activeValues={selected("team")}
-          seriesDimension="workflowState"
-          activeSeriesValues={selected("workflowState")}
-          onSelect={views ? select : undefined}
-          onSelectCombination={views ? selectCombination : undefined}
-          series={[
-            { key: "succeeded", name: "Succeeded", color: GREEN, filterValue: "Succeeded" },
-            { key: "failing", name: "Failing", color: RED, filterValue: "Failing" },
-            { key: "idle", name: "Idle", color: GRAY, filterValue: "Idle" },
-          ]}
-        />
       </section>
 
-      <h2 className="section-title">Progress over time</h2>
-      {views ? (
+      {views && (
         <section className="charts charts-full">
           <TimelineChart
-            title="Repositories"
-            subtitle="Migrations by state"
-            rows={views.migrations}
-            range={range}
-            nowMs={nowMs}
-            series={repoTimelineSeries}
-            countsOf={repoTimelineCounts}
-            teamLabel={teamLabel}
-            windowDays={windowDays}
-          />
-          <TimelineChart
-            title="Actions workflows"
+            title="Over time"
             subtitle="Workflow health, dated by repository migration"
             rows={views.migrations}
             range={range}
@@ -355,14 +460,43 @@ export default function App() {
             windowDays={windowDays}
           />
         </section>
-      ) : (
-        <RowsLoading progress={progress} />
+      )}
+
+      {views && windowDays > 0 && (
+        <>
+          <h2 className="section-title">
+            Onboarding
+            <span className="section-note">
+              Every migration against its {windowDays}-day window, whatever the time range
+            </span>
+          </h2>
+          <OnboardingCards scope={views.scope} windowDays={windowDays} />
+          <section className="charts">
+            <CategoryBarChart
+              title="Back online"
+              subtitle={`Repositories whose workflows ran within ${windowDays} days of migrating`}
+              groups={breakdownGroups({
+                org: views.onboardingOrgs,
+                team: views.onboardingTeams,
+                sourcePlatform: views.onboardingPlatforms,
+              })}
+              activeValuesFor={selected}
+              stacked
+              seriesDimension="onboarding"
+              activeSeriesValues={selected("onboarding")}
+              onSelect={select}
+              onSelectCombination={selectCombination}
+              series={ONBOARDING_SERIES(GREEN, RED, AMBER)}
+            />
+          </section>
+        </>
       )}
       </div>
       )}
 
       {tab === "repositories" && (
         <div role="tabpanel" id="panel-repositories" aria-labelledby="tab-repositories">
+          <RepositoryCards kpis={kpis} deltas={views?.deltas} />
           {views ? (
             <MigrationsTable
               repositories={views.migrations}
@@ -379,6 +513,7 @@ export default function App() {
 
       {tab === "workflows" && (
         <div role="tabpanel" id="panel-workflows" aria-labelledby="tab-workflows">
+          <WorkflowCards workflows={workflowTotalsView} windowDays={windowDays} deltas={views?.deltas} />
           {views ? (
             <WorkflowsTable
               repositories={views.migrations}
