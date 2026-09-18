@@ -218,7 +218,8 @@ A repository is **back online** when every workflow it is scored on has passed a
 least once — the rule that badges it onboarded, now dated, so the **Onboarding**
 tab can chart how long it took. One with nothing scored, or whose success predates
 these dates being recorded, sits out of the charts rather than counting as never
-recovered.
+recovered. The curve stacks fully green on part-way there, leaving the space
+above the bands as the repositories where nothing has run at all.
 
 An estate migrated before this existed is dated by a one-time back-fill: two
 requests per already-succeeded workflow, spread across runs and resumable, and it

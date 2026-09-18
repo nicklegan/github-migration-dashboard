@@ -19,10 +19,10 @@ const percent = (value) => `${Math.round(value * 100)}%`;
 // again. The x-axis is days since *that repository's* migration, so cohorts
 // migrated months apart lie on top of each other and can be compared.
 //
-// The two lines are meant to cross: repositories climb into the part-way line
-// first and out of it as they finish, so a healthy programme shows the amber
-// falling as the green rises. Amber left standing at the window edge is the
-// population that never finished.
+// The bands stack, so the top edge is "anything running at all" and the space
+// left above it is repositories where nothing has run yet. Drawn unstacked that
+// third group is invisible — it only shows up if you subtract both lines from
+// 100 — and it is the one worth chasing.
 export default function RecoveryCurveChart({ title, subtitle, rows, windowDays, nowMs }) {
   const { tooltipProps, legendProps, AXIS_TICK, AXIS_LINE, GRID, CURSOR, SUCCESS, ATTENTION } =
     useChartTheme();
@@ -99,22 +99,24 @@ export default function RecoveryCurveChart({ title, subtitle, rows, windowDays, 
             )}
             <Area
               type="monotone"
-              dataKey="partlyGreen"
-              name="Partly onboarded"
-              stroke={ATTENTION}
-              fill={ATTENTION}
-              fillOpacity={0.08}
+              dataKey="allGreen"
+              name="Onboarded"
+              stackId="onboarding"
+              stroke={SUCCESS}
+              fill={SUCCESS}
+              fillOpacity={0.24}
               strokeWidth={2}
               dot={false}
               isAnimationActive={false}
             />
             <Area
               type="monotone"
-              dataKey="allGreen"
-              name="Onboarded"
-              stroke={SUCCESS}
-              fill={SUCCESS}
-              fillOpacity={0.16}
+              dataKey="partlyGreen"
+              name="Partly onboarded"
+              stackId="onboarding"
+              stroke={ATTENTION}
+              fill={ATTENTION}
+              fillOpacity={0.14}
               strokeWidth={2}
               dot={false}
               isAnimationActive={false}
@@ -126,7 +128,7 @@ export default function RecoveryCurveChart({ title, subtitle, rows, windowDays, 
         <p className="chart-footnote">
           {population.toLocaleString()} migrated repositories. Each day counts only the repositories
           that have had that long since migrating, so the curve is not dragged down by this week's
-          arrivals.
+          arrivals. The space above the bands is repositories where nothing has run yet.
           {late > 0 && (
             <>
               {" "}
