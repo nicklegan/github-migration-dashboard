@@ -215,16 +215,10 @@ with a workflow still failing or never run is badged **not onboarded**
 ### Getting back online
 
 A repository is **back online** when every workflow it is scored on has passed at
-least once — the rule that badges it onboarded, now dated. The **Onboarding** tab
-plots the share running again by day of each repository's own window, arrivals
-against recoveries week by week, and median days to green by organization, team,
-or source platform.
-
-Each day counts only the repositories that have *had* that long, so recent
-migrations cannot drag down a figure they have not reached. A workflow already
-green before the action started dating recoveries cannot be dated — a later run
-is not its first success — so those repositories sit out of the curve until a
-re-list dates them.
+least once — the rule that badges it onboarded, now dated, so the **Onboarding**
+tab can chart how long it took. One with nothing scored, or whose success predates
+these dates being recorded, sits out of the charts rather than counting as never
+recovered.
 
 A repository counts as migrated when **any** attempt succeeded. A retry into a
 *different* repository name marks the original `SUPERSEDED`, so it stops
@@ -273,28 +267,17 @@ reusable (`workflow_call`-only) workflows are excluded entirely.
 ## Running at scale
 
 A run costs about the same whether you have migrated 30,000 repositories or
-300,000: the onboarding window holds the actively tracked population at
-`migrations per day × onboarding-window-days`, the audit log is read once and
-scoped to the organizations that hold migrations, and every other phase resumes
-from a stored cursor. A steady-state run is one request per organization plus a
-handful more. Organizations the token cannot read cost nothing beyond a daily
-retry.
+300,000: the onboarding window holds the tracked population at `migrations per
+day × onboarding-window-days`, the audit log is read once and scoped to the
+organizations holding migrations, and every other phase resumes from a stored
+cursor. Steady state is one request per organization plus a handful more.
 
-The budgets are backstops, not targets. Hit one and the run stops that phase
-cleanly, commits its progress, sets the `truncated` output, and resumes next
-time — no data is lost. A run that cannot reach every organization records
-where it stopped and starts there next time, so a budget that is always short
-still works its way round rather than starving the same organizations.
-
-The first run is the expensive one: it inventories every migrated repository at
-one request per repository plus up to two per workflow. A classic token's
-primary limit is 5,000 REST requests an hour, so a large estate takes several
-runs regardless of the budgets. The audit log is not part of that cost: workflow
-history is classified once by REST at inventory, so the log is only read for
-runs since then — never for the organization's CI history. The audit log has a
-retention limit — nominally 180 days, in practice often longer, and it varies by
-enterprise — so migrations that predate it arrive without a duration, and a
-dashboard left unrun for longer than that misses deletions in the gap.
+The first run is the expensive one — one request per repository plus up to three
+per workflow — and a classic token allows 5,000 REST requests an hour, so a large
+estate takes several runs. Budgets are backstops: hitting one stops that phase,
+commits its progress, sets the `truncated` output, and resumes next run. The
+audit log's retention bounds history, so migrations older than it arrive without
+a duration.
 
 - :bulb: Raise `inventory-ttl-days`, `attribute-ttl-days`, and
   `settled-attribute-ttl-days` to trade freshness for headroom. Avoid

@@ -66,9 +66,16 @@ function recoveryCurve(rows, { windowDays, nowMs = Date.now(), points = 40 } = {
 // A repository already green when the action started dating recoveries is left
 // out too: it cannot be placed on the curve, and counting it as never recovered
 // would understate every cohort it appears in.
+//
+// So is one with nothing scored — only manual, reusable, or post-window
+// workflows. It has no first success to be dated by, so it can never join the
+// curve, and leaving it in pins the population at zero and buries the
+// repositories that did come back.
 function eligible(row) {
   if (row.state !== "SUCCEEDED" || row.removed || row.greenUndated) return false;
-  return Boolean(row.migratedAt ?? row.createdAt);
+  if (!(row.migratedAt ?? row.createdAt)) return false;
+  const counts = row.workflows;
+  return (counts?.succeeded ?? 0) + (counts?.failing ?? 0) + (counts?.idle ?? 0) > 0;
 }
 
 // Arrivals against recoveries, in calendar time: repositories migrating per

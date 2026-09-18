@@ -10,6 +10,8 @@ function repo(daysAgo, { daysToGreen = null, daysToFirstGreen = null, ...rest } 
     state: "SUCCEEDED",
     removed: false,
     migratedAt: new Date(NOW - daysAgo * DAY).toISOString(),
+    // A repository is only on the curve if it has something scored to date.
+    workflows: { succeeded: 1, failing: 0, idle: 0, manual: 0, postOnboarding: 0 },
     daysToGreen,
     daysToFirstGreen,
     backOnlineAt:
@@ -124,6 +126,25 @@ test("a repository green from before dating is left out, not counted as red", ()
 
   assert.equal(population, 1);
   assert.equal(points.find((p) => p.day >= 10).allGreen, 1, "not 50%");
+});
+
+// Only manual, reusable, or post-window workflows means nothing to score, and so
+// no first success that could ever date it. Left in, such a repository sits at
+// zero for good — and on a real estate they are the majority, which pins the
+// whole curve to the floor.
+test("a repository with nothing scored is not on the curve at all", () => {
+  const nothing = { succeeded: 0, failing: 0, idle: 0, manual: 3, postOnboarding: 1 };
+  const rows = [
+    repo(60, { daysToGreen: 5 }),
+    repo(60, { workflows: nothing }),
+    repo(60, { workflows: nothing }),
+    repo(60, { workflows: null }),
+  ];
+
+  const { points, population } = recoveryCurve(rows, { windowDays: 60, nowMs: NOW, points: 60 });
+
+  assert.equal(population, 1, "only the repository that could recover");
+  assert.equal(points.find((p) => p.day >= 10).allGreen, 1, "not 25%");
 });
 
 // The cards above the curve count what is green now; the curve counts what was

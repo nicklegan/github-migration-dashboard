@@ -214,7 +214,6 @@ export default function MigrationsTable({ repositories, teamLabel = "Team", serv
                       <OrgCell serverUrl={serverUrl} org={row.organization} />
                       <td>
                         <TargetRepository row={row} serverUrl={serverUrl} />
-                        <MovedLabel row={row} />
                         {folded && <span className="counter counter-sm">{row.attemptCount} attempts</span>}
                         {row.removed && (
                           <span className="label label-danger" title={`Migrated successfully, then deleted on the target ${dateTime(row.deletedAt)}`}>
@@ -231,6 +230,8 @@ export default function MigrationsTable({ repositories, teamLabel = "Team", serv
                             not onboarded
                           </span>
                         )}
+                        {/* Provenance last: the badges before it are what needs acting on. */}
+                        <MovedLabel row={row} />
                       </td>
                       <td className="fg-muted">{platformOf(row) ?? "—"}</td>
                       <SourceCells url={row.sourceUrl} sourceType={row.sourceType} />
