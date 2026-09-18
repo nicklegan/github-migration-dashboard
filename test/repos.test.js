@@ -16,8 +16,13 @@ function stubGraphql(responses) {
   };
 }
 
-function repo(name, { diskUsage = 2048, properties = [] } = {}) {
-  return { name, diskUsage, repositoryCustomPropertyValues: { nodes: properties } };
+function repo(name, { diskUsage = 2048, properties = [], owner = "acme", id } = {}) {
+  return {
+    id: id ?? `R_${name}`,
+    nameWithOwner: `${owner}/${name}`,
+    diskUsage,
+    repositoryCustomPropertyValues: { nodes: properties },
+  };
 }
 
 // A repository name ends up in the query document, so it travels as a variable.
@@ -45,15 +50,35 @@ test("size is reported in MB and the team comes from the named property", async 
 
   const details = await fetchRepoDetails(octokit, "acme", ["alpha"], "team", new Budget());
 
-  assert.deepEqual(details.get("alpha"), { repoSizeMB: 1.5, team: "Platform" });
+  assert.deepEqual(details.get("alpha"), {
+    repoId: "R_alpha",
+    nameWithOwner: "acme/alpha",
+    repoSizeMB: 1.5,
+    team: "Platform",
+  });
   assert.deepEqual(octokit.calls[0].variables, { owner: "acme", n0: "alpha" });
+});
+
+// The lookup follows a rename, so the answer is about a repository that is no
+// longer called what was asked for.
+test("a renamed repository reports where it lives now, under the name asked for", async () => {
+  const octokit = stubGraphql([{ r0: repo("beta", { owner: "other" }) }]);
+  const details = await fetchRepoDetails(octokit, "acme", ["alpha"], "team", new Budget());
+
+  assert.equal(details.get("alpha").nameWithOwner, "other/beta");
+  assert.equal(details.get("alpha").repoId, "R_beta");
 });
 
 test("a repository without the property is unassigned, not skipped", async () => {
   const octokit = stubGraphql([{ r0: repo("alpha", { properties: [] }) }]);
   const details = await fetchRepoDetails(octokit, "acme", ["alpha"], "team", new Budget());
 
-  assert.deepEqual(details.get("alpha"), { repoSizeMB: 2, team: null });
+  assert.deepEqual(details.get("alpha"), {
+    repoId: "R_alpha",
+    nameWithOwner: "acme/alpha",
+    repoSizeMB: 2,
+    team: null,
+  });
 });
 
 test("the property name matches regardless of case", async () => {

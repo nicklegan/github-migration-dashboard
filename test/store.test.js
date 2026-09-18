@@ -101,6 +101,23 @@ test("the sweep position and run count round trip", () => {
   assert.equal(fresh.runs, 0);
 });
 
+// A field the reader does not know about is still a field a run wrote on
+// purpose. Dropping it is invisible: it gets rewritten every run, so the file
+// looks right while the value never survives — which is how the workflow-run
+// cursor and the team property were being reset on every run.
+test("state fields the reader does not name survive a round trip", () => {
+  const { store, root } = tempStore();
+  store.writeState({
+    migrationCursors: {},
+    runCursor: { at: 99, documentIds: ["a"] },
+    teamProperty: "business_unit",
+  });
+
+  const state = new Store(root).readState();
+  assert.deepEqual(state.runCursor, { at: 99, documentIds: ["a"] });
+  assert.equal(state.teamProperty, "business_unit");
+});
+
 // A run that touches no shard can still have moved the audit cursor, and a
 // cursor that is never committed makes the next run re-read the same window.
 test("writeState reports whether the state changed", () => {

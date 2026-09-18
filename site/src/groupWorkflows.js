@@ -52,6 +52,9 @@ function workflowGroups(repositories) {
       exists: repo.exists,
       state: repo.state,
       removed: repo.removed,
+      // Set only for a repository renamed or transferred after it migrated.
+      movedFrom: repo.movedFrom ?? null,
+      movedAt: repo.movedAt ?? null,
       // Carried from the repository's migration so the workflow table can show
       // where the code came from and who owns it without a second lookup.
       sourceType: repo.sourceType ?? null,

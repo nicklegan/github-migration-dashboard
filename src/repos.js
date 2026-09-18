@@ -1,5 +1,5 @@
-// Fetches repository size (diskUsage) and the owning-team custom property for a
-// specific set of repositories, batched into aliased GraphQL lookups.
+// Fetches repository size (diskUsage), the owning-team custom property, and
+// where the repository currently lives, batched into aliased GraphQL lookups.
 //
 // This polls rather than following `custom_property_value.*` audit events on
 // purpose: a repository with the property unset emits no event, and "unset" is
@@ -12,9 +12,14 @@
 
 const BATCH_SIZE = 100;
 
+// The lookup follows renames and transfers, so `nameWithOwner` is where the
+// repository lives now rather than the name it was asked for. `id` survives
+// both moves, and is the only way to tell a redirect from a new repository that
+// has since taken the old name.
 const REPO_FIELDS = `
 fragment RepoFields on Repository {
-  name
+  id
+  nameWithOwner
   diskUsage
   repositoryCustomPropertyValues(first: 100) {
     nodes { propertyName value }
@@ -33,9 +38,10 @@ function buildQuery(count) {
   return `query (${declarations.join(", ")}) {\n${selections.join("\n")}\n}\n${REPO_FIELDS}`;
 }
 
-// Returns a Map keyed by repo name -> { repoSizeMB, team }. Repositories that
-// no longer resolve are simply absent; the caller keeps their stored values,
-// because a missing lookup is not proof of deletion.
+// Returns a Map keyed by the name asked for -> { repoId, nameWithOwner,
+// repoSizeMB, team }. Repositories that no longer resolve are simply absent;
+// the caller keeps their stored values, because a missing lookup is not proof
+// of deletion.
 async function fetchRepoDetails(octokit, org, names, teamProperty, budget) {
   const details = new Map();
 
@@ -62,6 +68,8 @@ async function fetchRepoDetails(octokit, org, names, teamProperty, budget) {
       const node = data?.[`r${i}`];
       if (!node) return;
       details.set(name, {
+        repoId: node.id ?? null,
+        nameWithOwner: node.nameWithOwner ?? null,
         // diskUsage is in KB; report MB. Absent for repos with no content.
         repoSizeMB: typeof node.diskUsage === "number" ? node.diskUsage / 1024 : null,
         team: teamValue(node.repositoryCustomPropertyValues?.nodes, teamProperty),

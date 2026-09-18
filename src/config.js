@@ -21,6 +21,7 @@ function readConfig() {
     inventoryTtlDays: nonNegativeInt(core.getInput("inventory-ttl-days"), 7),
     attributeTtlDays: nonNegativeInt(core.getInput("attribute-ttl-days"), 1),
     settledAttributeTtlDays: nonNegativeInt(core.getInput("settled-attribute-ttl-days"), 7),
+    refreshAttributes: booleanInput("refresh-attributes", false),
     onboardingWindowDays: nonNegativeInt(core.getInput("onboarding-window-days"), 60),
     rowChunkSize: positiveInt(core.getInput("row-chunk-size"), 2000),
     detailBuckets: positiveInt(core.getInput("detail-buckets"), 256),

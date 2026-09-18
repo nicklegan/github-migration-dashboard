@@ -1,4 +1,10 @@
-import { workflowCounts, inOnboarding, onboardingClosesAt } from "./apply.js";
+import {
+  workflowCounts,
+  backOnlineAt,
+  firstGreenAt,
+  inOnboarding,
+  onboardingClosesAt,
+} from "./apply.js";
 import { bucketOf } from "./store.js";
 import { ONGOING_STATES } from "./states.js";
 
@@ -81,6 +87,16 @@ function onboardingStatus(state, closesAt, counts, now) {
   return counts.failing > 0 || counts.idle > 0 ? "incomplete" : "complete";
 }
 
+// Fractional days, so a repository green the same afternoon is not rounded to
+// the same point as one that took until the next morning.
+function daysBetween(from, to) {
+  if (!from || !to) return null;
+  const started = Date.parse(from);
+  const ended = Date.parse(to);
+  if (!Number.isFinite(started) || !Number.isFinite(ended)) return null;
+  return Math.max(0, (ended - started) / 86400000);
+}
+
 // Joins the migration event log to current repository state. Returns the light
 // rows plus a detail map keyed by bucket, ready to be written as separate files.
 //
@@ -131,6 +147,23 @@ function buildRows(migrations, repos, { windowMs = Infinity, now = Date.now(), d
     const state = summaryState(attempts);
     const counts = record && !deletedAt ? workflowCounts(record, closesAt) : null;
     const removed = Boolean(deletedAt) && state === "SUCCEEDED";
+    // When every workflow was green, and how long after migrating that took.
+    // Both null until it happens, so a repository still onboarding is absent
+    // from the recovery curve rather than plotted as a zero.
+    const backOnline = record && !deletedAt ? backOnlineAt(record, closesAt) : null;
+    const daysToGreen = daysBetween(migratedAt, backOnline);
+    // The first sign of life, which can precede being fully green by weeks.
+    const daysToFirstGreen = daysBetween(
+      migratedAt,
+      record && !deletedAt ? firstGreenAt(record, closesAt) : null,
+    );
+    // A repository renamed or transferred after migrating is reported where it
+    // lives now: the dashboard describes the estate as it stands, and a link to
+    // the old name only works until someone reuses it. The migration-time name
+    // survives on `movedFrom`, and as the row id, so the record stays truthful
+    // about what was moved.
+    const organization = record?.currentOrg ?? representative.org;
+    const repository = record?.currentRepository ?? representative.repository;
     // Whether the repository is there to be visited. A live migration that was
     // aborted or expired can still leave the repository on the target, so the
     // migration's own state is not proof either way — an attribute lookup that
@@ -141,8 +174,8 @@ function buildRows(migrations, repos, { windowMs = Infinity, now = Date.now(), d
     rows.push({
       id: key,
       d: bucket,
-      organization: representative.org,
-      repository: representative.repository,
+      organization,
+      repository,
       state,
       createdAt: representative.createdAt,
       migratedAt,
@@ -168,8 +201,25 @@ function buildRows(migrations, repos, { windowMs = Infinity, now = Date.now(), d
       // small object, and only for repositories that have exactly one.
       workflow: workflowList.length === 1 ? workflowList[0] : null,
       workflows: counts,
+      backOnlineAt: backOnline,
+      daysToGreen,
+      daysToFirstGreen,
       onboarding: onboardingStatus(state, closesAt, counts, now),
     });
+
+    // Only carried by the few rows that moved, so the payload does not grow a
+    // null for every repository in the estate.
+    if (organization !== representative.org || repository !== representative.repository) {
+      rows[rows.length - 1].movedFrom = key;
+      rows[rows.length - 1].movedAt = record?.renamedAt ?? null;
+    }
+
+    // Green, but from a success recorded before the action dated them. The
+    // recovery curve has to leave these out rather than read them as never
+    // recovered — they resolve themselves as each repository is re-listed.
+    if (counts && !backOnline && counts.failing === 0 && counts.idle === 0 && counts.succeeded > 0) {
+      rows[rows.length - 1].greenUndated = true;
+    }
 
     if (!detail.has(bucket)) detail.set(bucket, {});
     detail.get(bucket)[key] = {

@@ -17,6 +17,8 @@ import {
   earliestMigrationMs,
   earliestInventoryMs,
   migratedOrgs,
+  isAttributeSweepDue,
+  ATTRIBUTE_SCHEMA,
 } from "./sync.js";
 import { Store } from "./store.js";
 import { Budget } from "./budget.js";
@@ -121,9 +123,13 @@ async function run() {
   state.runs = (state.runs ?? 0) + 1;
   // Recorded only once every organization was reached, so a sweep the budget
   // cut short is repeated next run rather than leaving the tail on old values.
-  if (state.teamProperty !== config.teamProperty) {
-    if (ranOutAt === null) state.teamProperty = config.teamProperty;
-    else core.info(`team-property changed; the remaining organizations re-read it next run.`);
+  if (isAttributeSweepDue(state, config)) {
+    if (ranOutAt === null) {
+      state.teamProperty = config.teamProperty;
+      state.attributeSchema = ATTRIBUTE_SCHEMA;
+    } else {
+      core.info(`The attribute sweep was cut short; the remaining organizations re-read next run.`);
+    }
   }
   if (ranOutAt) {
     core.warning(

@@ -8,7 +8,7 @@ import SourceCells from "./SourceCells.jsx";
 import ExportCsvButton from "./ExportCsvButton.jsx";
 import Blankslate from "./Blankslate.jsx";
 import Icon from "./Icon.jsx";
-import { useSort, SortableTh, OrgCell } from "./table.jsx";
+import { useSort, SortableTh, OrgCell, MovedLabel } from "./table.jsx";
 import { useFillViewport } from "../useFillViewport.js";
 
 // Only a repository that exists on the target is linked; targetUrl decides.
@@ -95,6 +95,9 @@ export default function MigrationsTable({ repositories, teamLabel = "Team", serv
       (row) =>
         row.repository.toLowerCase().includes(q) ||
         row.organization.toLowerCase().includes(q) ||
+        // Somebody looking for a repository will search for the name they know,
+        // which for a renamed one is often the name it migrated under.
+        (row.movedFrom || "").toLowerCase().includes(q) ||
         (row.team || "").toLowerCase().includes(q) ||
         platformOf(row)?.toLowerCase().includes(q) ||
         row.state.toLowerCase().includes(q),
@@ -211,6 +214,7 @@ export default function MigrationsTable({ repositories, teamLabel = "Team", serv
                       <OrgCell serverUrl={serverUrl} org={row.organization} />
                       <td>
                         <TargetRepository row={row} serverUrl={serverUrl} />
+                        <MovedLabel row={row} />
                         {folded && <span className="counter counter-sm">{row.attemptCount} attempts</span>}
                         {row.removed && (
                           <span className="label label-danger" title={`Migrated successfully, then deleted on the target ${dateTime(row.deletedAt)}`}>
@@ -224,7 +228,7 @@ export default function MigrationsTable({ repositories, teamLabel = "Team", serv
                         )}
                         {row.onboarding === "incomplete" && (
                           <span className="label label-attention" title="Onboarding window closed with workflows still failing or never run">
-                            onboarding incomplete
+                            not onboarded
                           </span>
                         )}
                       </td>

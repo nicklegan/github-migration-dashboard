@@ -10,6 +10,8 @@ import {
   earliestMigrationMs,
   earliestInventoryMs,
   migratedOrgs,
+  isAttributeSweepDue,
+  ATTRIBUTE_SCHEMA,
 } from "../src/sync.js";
 import { Store } from "../src/store.js";
 import { Budget } from "../src/budget.js";
@@ -63,7 +65,7 @@ async function sync({ store, state, budget = new Budget({}), octokit = quietOcto
 }
 
 function freshState() {
-  return { migrationCursors: {}, auditCursor: null };
+  return { migrationCursors: {}, auditCursor: null, attributeSchema: ATTRIBUTE_SCHEMA };
 }
 
 const enabled = (at = ENABLED_AT, documentId = "on-1") => ({
@@ -246,6 +248,76 @@ test("events for repositories that were never migrated are dropped", () => {
   assert.ok(store.getRepo("org-a/api").deletedAt);
 });
 
+// A renamed repository's events arrive under its new name. Matching only on the
+// migrated name silently freezes its workflow status at the moment it was moved.
+test("events for a renamed repository reach the record it was migrated as", () => {
+  const store = tempStore();
+  store.putMigration(migration());
+  store.putRepo("org-a/api", {
+    org: "org-a",
+    repository: "api",
+    currentOrg: "org-b",
+    currentRepository: "platform-api",
+    workflows: {},
+  });
+
+  const { applied } = applyAuditEvents(store, [
+    {
+      documentId: "run-1",
+      at: Date.parse("2026-09-03T08:00:00Z"),
+      type: "workflow_run",
+      org: "org-b",
+      repository: "platform-api",
+      workflowKey: "ci.yml",
+      workflowId: 7,
+      name: "CI",
+      conclusion: "success",
+      completedAt: "2026-09-03T08:00:00Z",
+    },
+  ]);
+
+  assert.equal(applied, 1);
+  assert.equal(store.getRepo("org-b/platform-api"), null, "no second record under the new name");
+  assert.equal(store.getRepo("org-a/api").workflows["ci.yml"].status, "succeeded");
+});
+
+// The events of a transferred repository are logged against its new owner, so
+// that organization has to be in the read even if nothing was migrated into it.
+test("the audit read covers organizations repositories were transferred to", () => {
+  const store = tempStore();
+  store.putMigration(migration());
+  store.putRepo("org-a/api", {
+    org: "org-a",
+    repository: "api",
+    currentOrg: "org-b",
+    currentRepository: "api",
+    workflows: {},
+  });
+
+  assert.deepEqual(migratedOrgs(store), ["org-a", "org-b"]);
+});
+
+// Once a repository moves, its old name is free for somebody else to take —
+// and to delete. Reading that as our repository's deletion would badge a live
+// repository as removed.
+test("a deletion under the name a repository left behind is not its deletion", () => {
+  const store = tempStore();
+  store.putMigration(migration());
+  store.putRepo("org-a/api", {
+    org: "org-a",
+    repository: "api",
+    currentOrg: "org-a",
+    currentRepository: "api-v2",
+    workflows: {},
+  });
+
+  applyAuditEvents(store, [destroyed(Date.parse("2026-09-05T08:00:00Z"), "org-a", "api")]);
+  assert.equal(store.getRepo("org-a/api").deletedAt, undefined);
+
+  applyAuditEvents(store, [destroyed(Date.parse("2026-09-06T08:00:00Z"), "org-a", "api-v2")]);
+  assert.ok(store.getRepo("org-a/api").deletedAt, "deleted where it actually lives");
+});
+
 test("events are routed to their own organization", () => {
   const store = tempStore();
   store.putMigration(migration());
@@ -317,4 +389,93 @@ test("a changed team-property re-reads attributes before their TTL", async () =>
     config: { ...config, teamProperty: "area" },
   });
   assert.equal(store.getRepo("org-a/api").team, "Mobility");
+});
+
+// Existing records carry no location, so one sweep after an upgrade back-fills
+// them. It has to settle afterwards, or the TTLs never apply again.
+test("a store that predates location tracking is swept once, then settles", () => {
+  const state = { teamProperty: "team" };
+  assert.equal(isAttributeSweepDue(state, config), true, "no marker yet");
+
+  state.attributeSchema = ATTRIBUTE_SCHEMA;
+  assert.equal(isAttributeSweepDue(state, config), false);
+  assert.equal(isAttributeSweepDue(state, { ...config, refreshAttributes: true }), true);
+});
+
+// Asking under the old name works only while GitHub keeps the redirect, which
+// ends the moment somebody creates a repository with that name.
+test("attributes are read where the repository lives now", async () => {
+  const store = tempStore();
+  store.putMigration(migration());
+  store.putRepo("org-a/api", {
+    org: "org-a",
+    repository: "api",
+    repoId: "R_api",
+    currentOrg: "org-b",
+    currentRepository: "platform-api",
+    workflows: {},
+  });
+
+  const asked = [];
+  const octokit = {
+    ...quietOctokit,
+    graphql: async (query, variables) => {
+      if (query.includes("repositoryMigrations")) {
+        return { organization: { repositoryMigrations: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+      }
+      asked.push(variables);
+      return {
+        r0: {
+          id: "R_api",
+          nameWithOwner: "org-b/platform-api",
+          diskUsage: 1024,
+          repositoryCustomPropertyValues: { nodes: [] },
+        },
+      };
+    },
+  };
+
+  await sync({ store, state: { ...freshState(), teamProperty: "team" }, octokit });
+
+  assert.deepEqual(asked[0], { owner: "org-b", n0: "platform-api" });
+  assert.equal(store.getRepo("org-a/api").repoSizeMB, 1);
+});
+
+// A repository created under a name a migrated repository used to have is a
+// different repository. Folding its size and team in would misreport both.
+test("a stranger under the old name does not overwrite the migrated repository", async () => {
+  const store = tempStore();
+  store.putMigration(migration());
+  store.putRepo("org-a/api", {
+    org: "org-a",
+    repository: "api",
+    repoId: "R_ours",
+    team: "Platform",
+    repoSizeMB: 5,
+    workflows: {},
+  });
+
+  const octokit = {
+    ...quietOctokit,
+    graphql: async (query) => {
+      if (query.includes("repositoryMigrations")) {
+        return { organization: { repositoryMigrations: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+      }
+      return {
+        r0: {
+          id: "R_somebody_else",
+          nameWithOwner: "org-a/api",
+          diskUsage: 99999,
+          repositoryCustomPropertyValues: { nodes: [{ propertyName: "team", value: "Unrelated" }] },
+        },
+      };
+    },
+  };
+
+  await sync({ store, state: { ...freshState(), teamProperty: "team" }, octokit });
+
+  const record = store.getRepo("org-a/api");
+  assert.equal(record.team, "Platform");
+  assert.equal(record.repoSizeMB, 5);
+  assert.equal(record.observedAliveAt, undefined, "a stranger is not proof our repository is alive");
 });

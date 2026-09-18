@@ -130,13 +130,13 @@ export function OnboardingCards({ scope, windowDays }) {
   return (
     <div className="stat-banks">
       <Bank columns={5}>
-        <Stat value={count(scope.inProgress)} label="Still in window" hint="Too early to judge" />
+        <Stat value={count(scope.inProgress)} label="Onboarding" hint="Still inside the window" />
         <Stat tone="success" value={count(scope.complete)} label="Onboarded" hint="Every workflow succeeded" />
         <Stat
           tone="danger"
           value={count(scope.incomplete)}
-          label="Window closed, not onboarded"
-          hint="Workflows failing or never run"
+          label="Not onboarded"
+          hint="Window closed, workflows still failing or never run"
         />
         <Stat
           value={percent1(onboardingRate(scope))}
@@ -146,7 +146,7 @@ export function OnboardingCards({ scope, windowDays }) {
         <Stat
           tone="danger"
           value={count(scope.failingRepos)}
-          label="Repos with failing workflows"
+          label="With failing workflows"
           hint="At any stage of the window"
         />
       </Bank>

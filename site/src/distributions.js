@@ -42,7 +42,7 @@ const DURATION_BUCKETS = [
 const ONBOARDING_LABELS = {
   "in-progress": "Onboarding",
   complete: "Onboarded",
-  incomplete: "Incomplete",
+  incomplete: "Not onboarded",
 };
 
 function bucketLabel(value, buckets) {

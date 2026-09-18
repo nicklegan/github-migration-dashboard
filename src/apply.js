@@ -14,6 +14,13 @@ function emptyRepo(org, repository) {
   return {
     org,
     repository,
+    repoId: null,
+    // Where the repository lives now, set only once it differs from the name it
+    // was migrated under. The record stays keyed by the migration-time name:
+    // that is the migration's identity, and re-keying would lose its history.
+    currentOrg: null,
+    currentRepository: null,
+    renamedAt: null,
     team: null,
     repoSizeMB: null,
     deletedAt: null,
@@ -23,6 +30,24 @@ function emptyRepo(org, repository) {
     workflowsBootstrappedAt: null,
     updatedAt: null,
   };
+}
+
+// Where to look a repository up today, which is where it was migrated to until
+// something says otherwise.
+function repoLocation(record, org, repository) {
+  return {
+    owner: record?.currentOrg ?? org,
+    name: record?.currentRepository ?? repository,
+  };
+}
+
+// A name lookup follows a rename, but only until the old name is taken by a new
+// repository — after that it resolves to a stranger. The id is what tells those
+// apart, so a mismatch means the observation is about something else entirely.
+// Unknown on either side is not a mismatch: records predating the id have none.
+function isSameRepository(record, repoId) {
+  if (!repoId || !record?.repoId) return true;
+  return record.repoId === repoId;
 }
 
 const CONCLUSION_STATUS = {
@@ -59,6 +84,14 @@ function applyWorkflowRun(repo, event) {
     status,
     lastConclusion: event.conclusion ?? before.lastConclusion ?? null,
     lastRunAt: newerOf(before.lastRunAt, event.completedAt),
+    // When this workflow came back to life. Success is monotonic, so the first
+    // one is the moment that matters and later ones never move it — but events
+    // arrive out of order, so an older success does.
+    //
+    // A workflow already green before this was recorded cannot be dated from a
+    // run now: that run is not its first success, and saying so would report a
+    // months-old recovery as today's.
+    firstSuccessAt: firstSuccessOf(before, observed, event.completedAt),
     firstSeenAt:
       before.firstSeenAt ??
       (discovered && repo.workflowsBootstrappedAt ? (event.completedAt ?? null) : null),
@@ -67,8 +100,13 @@ function applyWorkflowRun(repo, event) {
   return { ...repo, workflows: { ...repo.workflows, [key]: workflow } };
 }
 
-function findWorkflow(workflows, event) {
-  const entries = Object.entries(workflows ?? {});
+function firstSuccessOf(before, observed, completedAt) {
+  if (observed !== "succeeded") return before.firstSuccessAt ?? null;
+  if (before.status === "succeeded" && !before.firstSuccessAt) return null;
+  return olderOf(before.firstSuccessAt, completedAt) ?? null;
+}
+
+function findWorkflow(workflows, event) {  const entries = Object.entries(workflows ?? {});
   const byId =
     event.workflowId != null
       ? entries.find(([, w]) => w.workflowId === event.workflowId)
@@ -101,6 +139,9 @@ function applyWorkflowInventory(repo, workflows, observedAt) {
       manual: workflow.manual ?? before?.manual ?? false,
       classifiedAt: workflow.classifiedAt ?? before?.classifiedAt ?? null,
       status: before?.status === "succeeded" ? "succeeded" : (workflow.status ?? before?.status ?? "idle"),
+      // The inventory reads this from the run history, so it can only ever be
+      // older than what run events have seen.
+      firstSuccessAt: olderOf(before?.firstSuccessAt, workflow.firstSuccessAt) ?? null,
       lastConclusion: before?.lastConclusion ?? null,
       lastRunAt: before?.lastRunAt ?? null,
       firstSeenAt: before?.firstSeenAt ?? (before || bootstrap ? null : observedAt),
@@ -116,12 +157,34 @@ function applyRepoAttributes(repo, attributes, observedAt) {
   const next = { ...repo };
   if ("team" in attributes) next.team = attributes.team ?? null;
   if ("repoSizeMB" in attributes) next.repoSizeMB = attributes.repoSizeMB ?? null;
+  if (attributes.repoId) next.repoId = attributes.repoId;
+  if (attributes.nameWithOwner) Object.assign(next, movedTo(repo, attributes.nameWithOwner, observedAt));
   if (observedAt) {
     next.observedAliveAt = observedAt;
     next.attributesFetchedAt = observedAt;
     next.deletedAt = null;
   }
   return next;
+}
+
+// A repository renamed back to what it was migrated as is not renamed at all,
+// so the fields clear rather than freezing the last move. `renamedAt` dates when
+// the move was first *seen*, not when it happened — the poll is what notices.
+function movedTo(repo, nameWithOwner, observedAt) {
+  const slash = String(nameWithOwner).indexOf("/");
+  if (slash < 1) return {};
+  const owner = nameWithOwner.slice(0, slash);
+  const name = nameWithOwner.slice(slash + 1);
+
+  if (owner === repo.org && name === repo.repository) {
+    return { currentOrg: null, currentRepository: null, renamedAt: null };
+  }
+  const unchanged = owner === repo.currentOrg && name === repo.currentRepository;
+  return {
+    currentOrg: owner,
+    currentRepository: name,
+    renamedAt: (unchanged ? repo.renamedAt : null) ?? observedAt ?? null,
+  };
 }
 
 // Whether a repository's team and size need re-reading. Onboarding repositories
@@ -166,6 +229,7 @@ function dedupeWorkflows(repo) {
           preferred.workflow.status === "succeeded" || other.status === "succeeded"
             ? "succeeded"
             : preferred.workflow.status,
+        firstSuccessAt: olderOf(preferred.workflow.firstSuccessAt, other.firstSuccessAt) ?? null,
         workflowId: preferred.workflow.workflowId ?? other.workflowId ?? null,
         url: preferred.workflow.url ?? other.url ?? null,
         manual: preferred.workflow.manual ?? other.manual ?? false,
@@ -197,6 +261,12 @@ function newerOf(a, b) {
   if (!a) return b ?? null;
   if (!b) return a;
   return Date.parse(b) > Date.parse(a) ? b : a;
+}
+
+function olderOf(a, b) {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return Date.parse(b) < Date.parse(a) ? b : a;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -242,8 +312,49 @@ function workflowCounts(repo, closesAt = Infinity) {
   return counts;
 }
 
+// The workflows a repository is scored on: the same exclusions the counts use,
+// so the dates answer the same question as the badge beside them.
+function scoredWorkflows(repo, closesAt) {
+  return Object.values(repo?.workflows ?? {}).filter(
+    (w) => !w.reusable && inOnboarding(w, closesAt) && !(w.manual && w.status === "idle"),
+  );
+}
+
+// When the repository first had every scored workflow green — the same rule the
+// dashboard already calls onboarding "complete", but dated.
+//
+// It is the LAST workflow to go green that gets the repository there, so this is
+// the maximum rather than the minimum. Success is monotonic (see the invariants
+// above), so once reached the date never moves. Null while anything is still
+// failing or has never run, which is exactly the set the window is there to
+// surface — and null too when a scored workflow succeeded before the action
+// started dating them, since a repository cannot be dated from a date it lacks.
+function backOnlineAt(repo, closesAt = Infinity) {
+  const scored = scoredWorkflows(repo, closesAt);
+  if (scored.length === 0) return null;
+
+  let latest = null;
+  for (const workflow of scored) {
+    if (workflow.status !== "succeeded" || !workflow.firstSuccessAt) return null;
+    latest = newerOf(latest, workflow.firstSuccessAt);
+  }
+  return latest;
+}
+
+// When anything in the repository first ran green. A repository can sit here for
+// weeks before every workflow follows, and that gap is the onboarding tail.
+function firstGreenAt(repo, closesAt = Infinity) {
+  let earliest = null;
+  for (const workflow of scoredWorkflows(repo, closesAt)) {
+    if (workflow.firstSuccessAt) earliest = olderOf(earliest, workflow.firstSuccessAt);
+  }
+  return earliest;
+}
+
 export {
   emptyRepo,
+  repoLocation,
+  isSameRepository,
   applyWorkflowRun,
   applyWorkflowInventory,
   applyRepoAttributes,
@@ -252,6 +363,8 @@ export {
   applyMigration,
   dedupeWorkflows,
   workflowCounts,
+  backOnlineAt,
+  firstGreenAt,
   inOnboarding,
   onboardingWindowMs,
   onboardingClosesAt,

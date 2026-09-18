@@ -79,6 +79,45 @@ test("team and size come from current repository state, not the migration", () =
   assert.equal(api.repoSizeMB, 50);
 });
 
+// The dashboard describes the estate as it stands, so a repository renamed or
+// transferred after migrating is reported where it lives now. Its row keeps the
+// id it was migrated under, so the migration record is still addressable.
+test("a repository that moved is reported at its current location", () => {
+  const moved = {
+    ...repos,
+    "org-a/api": {
+      ...repos["org-a/api"],
+      currentOrg: "org-c",
+      currentRepository: "platform-api",
+      renamedAt: "2026-02-01T00:00:00Z",
+    },
+  };
+  const { rows } = buildRows(migrations, moved);
+  const api = rows.find((r) => r.id === "org-a/api");
+
+  assert.equal(api.organization, "org-c");
+  assert.equal(api.repository, "platform-api");
+  assert.equal(api.movedFrom, "org-a/api");
+  assert.equal(api.movedAt, "2026-02-01T00:00:00Z");
+
+  // The breakdowns follow it, so the charts describe where the estate is now.
+  const summary = buildSummary(rows, []);
+  assert.deepEqual(
+    summary.orgs.map((o) => o.key).sort(),
+    ["org-b", "org-c"],
+  );
+});
+
+// Carried only by the rows that moved: a null on every repository in the estate
+// is bytes the browser downloads for nothing.
+test("a repository that stayed put carries no move fields", () => {
+  const { rows } = buildRows(migrations, repos);
+  const api = rows.find((r) => r.id === "org-a/api");
+
+  assert.equal("movedFrom" in api, false);
+  assert.equal(api.organization, "org-a");
+});
+
 // A repository with one workflow has nothing to fold, so the table shows it
 // inline — which it can only do if the row carries it.
 test("a repository with a single workflow carries it on the row", () => {

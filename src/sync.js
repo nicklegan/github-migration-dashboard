@@ -5,6 +5,8 @@ import { fetchWorkflowInventory } from "./workflows.js";
 import { fetchMigrationLogDuration } from "./migrationLog.js";
 import {
   emptyRepo,
+  repoLocation,
+  isSameRepository,
   applyMigration,
   applyRepoAttributes,
   applyRepoDeleted,
@@ -19,6 +21,22 @@ import {
 import { migratedAtOf } from "./summary.js";
 
 const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Bumped when a run starts recording something about a repository that older
+// records cannot carry — here, its id and current location. The first run after
+// an upgrade re-reads every repository once to back-fill it, then records the
+// marker so the sweep settles instead of repeating.
+const ATTRIBUTE_SCHEMA = 1;
+
+// A changed team-property makes every stored team wrong at once, so the TTL is
+// bypassed for one sweep rather than left to expire over a week.
+function isAttributeSweepDue(state, config) {
+  return (
+    state.teamProperty !== config.teamProperty ||
+    state.attributeSchema !== ATTRIBUTE_SCHEMA ||
+    Boolean(config.refreshAttributes)
+  );
+}
 
 // Records one organization's live migrations. They were already read
 // enterprise-wide, and this must run for every organization — including one the
@@ -104,14 +122,14 @@ async function syncOrganization({
   const settledTtlMs =
     config.settledAttributeTtlDays > 0 ? config.settledAttributeTtlDays * DAY_MS : Infinity;
 
-  // 3 — refresh team and size for the repositories whose copy has gone stale.
-  // A changed team-property makes every stored team wrong at once, so the TTL
-  // is bypassed for one sweep rather than left to expire over a week.
+  // 3 — refresh team, size, and current location for the repositories whose copy
+  // has gone stale, or every one of them when a sweep is due.
+  const sweep = isAttributeSweepDue(state, config);
   const attributesDue = [];
   for (const repository of migratedRepos) {
     const record = store.getRepo(`${org}/${repository}`);
     const due =
-      state.teamProperty !== config.teamProperty ||
+      sweep ||
       isAttributeRefreshDue(record, {
         now,
         closesAt: closesAtOf(repository),
@@ -123,23 +141,47 @@ async function syncOrganization({
 
   if (attributesDue.length > 0) {
     const observedAt = new Date().toISOString();
-    const details = await fetchRepoDetails(
-      octokit,
-      org,
-      attributesDue,
-      config.teamProperty,
-      budget,
-    );
+    // Each repository is looked up where it lives now. Asking under the old name
+    // works only while GitHub keeps the redirect, which ends the moment someone
+    // creates a repository with that name.
+    const byOwner = new Map();
     for (const repository of attributesDue) {
-      const attributes = details.get(repository);
-      // A repo the lookup could not resolve keeps its stored attributes; only
-      // an actual 404 during the workflow list is treated as deletion.
-      if (!attributes) continue;
-      const key = `${org}/${repository}`;
-      const record = store.getRepo(key) ?? emptyRepo(org, repository);
-      store.putRepo(key, applyRepoAttributes(dedupeWorkflows(record), attributes, observedAt));
+      const { owner, name } = repoLocation(store.getRepo(`${org}/${repository}`), org, repository);
+      if (!byOwner.has(owner)) byOwner.set(owner, []);
+      byOwner.get(owner).push({ repository, name });
     }
-    core.info(`Refreshed attributes for ${details.size} of ${attributesDue.length} due repo(s)`);
+
+    let refreshed = 0;
+    let strangers = 0;
+    for (const [owner, targets] of byOwner) {
+      const details = await fetchRepoDetails(
+        octokit,
+        owner,
+        targets.map((t) => t.name),
+        config.teamProperty,
+        budget,
+      );
+      for (const { repository, name } of targets) {
+        const attributes = details.get(name);
+        // A repo the lookup could not resolve keeps its stored attributes; only
+        // an actual 404 during the workflow list is treated as deletion.
+        if (!attributes) continue;
+        const key = `${org}/${repository}`;
+        const record = store.getRepo(key) ?? emptyRepo(org, repository);
+        if (!isSameRepository(record, attributes.repoId)) {
+          strangers += 1;
+          continue;
+        }
+        store.putRepo(key, applyRepoAttributes(dedupeWorkflows(record), attributes, observedAt));
+        refreshed += 1;
+      }
+    }
+    core.info(`Refreshed attributes for ${refreshed} of ${attributesDue.length} due repo(s)`);
+    if (strangers > 0) {
+      core.info(
+        `${strangers} repo(s) resolved to a different repository under the same name; left unchanged.`,
+      );
+    }
   }
 
   // 4 — inventory workflows: once when a repository first appears, then on a TTL
@@ -171,7 +213,8 @@ async function syncOrganization({
         .map((w) => [w.path, w]),
     );
 
-    const workflows = await fetchWorkflowInventory(octokit, org, repository, budget, known);
+    const { owner, name } = repoLocation(record, org, repository);
+    const workflows = await fetchWorkflowInventory(octokit, owner, name, budget, known);
     if (workflows === null) {
       // Out of budget mid-sweep leaves the rest for the next run.
       if (budget.truncated) break;
@@ -232,16 +275,26 @@ function applyAuditEvents(store, events) {
     if (!attemptsByOrg.has(org)) attemptsByOrg.set(org, groupAttempts(store.migrationsFor(org)));
     return attemptsByOrg.get(org);
   };
+  const moved = renameIndex(store);
 
   let applied = 0;
   let runEvents = 0;
   for (const event of events) {
-    const attemptsByRepo = attemptsFor(event.org);
-    if (!attemptsByRepo.has(event.repository)) continue;
-    applied += 1;
+    // The log names a repository where it lives now; the store keys it by the
+    // name it was migrated under.
+    const target = moved.get(`${event.org}/${event.repository}`) ?? event;
+    const attemptsByRepo = attemptsFor(target.org);
+    if (!attemptsByRepo.has(target.repository)) continue;
 
-    const key = `${event.org}/${event.repository}`;
-    const record = store.getRepo(key) ?? emptyRepo(event.org, event.repository);
+    const key = `${target.org}/${target.repository}`;
+    const record = store.getRepo(key) ?? emptyRepo(target.org, target.repository);
+
+    // A repository that has moved cannot be deleted under the name it left
+    // behind; that event belongs to whatever repository took the name.
+    const here = repoLocation(record, target.org, target.repository);
+    if (event.type === "repo_deleted" && (here.owner !== event.org || here.name !== event.repository))
+      continue;
+    applied += 1;
 
     if (event.type === "workflow_run") {
       store.putRepo(key, applyWorkflowRun(record, event));
@@ -249,10 +302,23 @@ function applyAuditEvents(store, events) {
     } else if (event.type === "repo_deleted") {
       store.putRepo(key, applyRepoDeleted(record, new Date(event.at).toISOString()));
     } else if (event.type === "actions_enabled") {
-      applyDuration(store, event, attemptsByRepo);
+      applyDuration(store, { ...event, ...target }, attemptsByRepo);
     }
   }
   return { applied, runEvents };
+}
+
+// Maps a repository's current location back to the key it is stored under.
+// Only repositories that have moved are in it, so the common case costs nothing.
+function renameIndex(store) {
+  const index = new Map();
+  for (const record of Object.values(store.allRepos())) {
+    if (!record.currentOrg && !record.currentRepository) continue;
+    const owner = record.currentOrg ?? record.org;
+    const name = record.currentRepository ?? record.repository;
+    index.set(`${owner}/${name}`, { org: record.org, repository: record.repository });
+  }
+  return index;
 }
 
 // Dates an attempt from the audit log's Actions-enabled event, the importer's
@@ -303,7 +369,13 @@ function earliestMigrationMs(store) {
 // these are the only organizations worth asking the log about. An organization
 // the token cannot read has none, and drops out of the read for free.
 function migratedOrgs(store) {
-  return [...new Set(store.allMigrations().map((row) => row.org))].sort();
+  const orgs = new Set(store.allMigrations().map((row) => row.org));
+  // A repository transferred out of the organization it was migrated into emits
+  // its events under the new owner, so that organization has to be read too.
+  for (const record of Object.values(store.allRepos())) {
+    if (record.currentOrg) orgs.add(record.currentOrg);
+  }
+  return [...orgs].sort();
 }
 
 // Every workflow's history is classified by REST when its repository is first
@@ -327,4 +399,6 @@ export {
   earliestMigrationMs,
   earliestInventoryMs,
   migratedOrgs,
+  isAttributeSweepDue,
+  ATTRIBUTE_SCHEMA,
 };

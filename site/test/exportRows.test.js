@@ -50,6 +50,44 @@ test("a repository with nothing to link exports empty cells, not placeholders", 
   assert.equal(cell("Source namespace"), "");
   assert.equal(cell("Source URL"), "");
   assert.equal(cell("Team"), "");
+  assert.equal(cell("Migrated as"), "", "only a repository that moved has one");
+});
+
+// A repository renamed or transferred after migrating exports where it lives
+// now, with the name it was migrated under alongside — the spreadsheet is what
+// gets reconciled against the source system's inventory.
+test("a repository that moved exports both names and links to the current one", () => {
+  const { headers, rows } = migrationCsv(
+    [{ ...row, organization: "org-c", repository: "platform-api", movedFrom: "org-a/api" }],
+    { serverUrl: "https://acme.ghe.com" },
+  );
+  const cell = (name) => rows[0][headers.indexOf(name)];
+
+  assert.equal(cell("Target organization"), "org-c");
+  assert.equal(cell("Target repository"), "platform-api");
+  assert.equal(cell("Target URL"), "https://acme.ghe.com/org-c/platform-api");
+  assert.equal(cell("Migrated as"), "org-a/api");
+});
+
+test("a repository back online exports when it got there, and how long it took", () => {
+  const { headers, rows } = migrationCsv(
+    [{ ...row, backOnlineAt: "2026-01-17T12:00:00Z", daysToGreen: 14.52 }],
+    {},
+  );
+  const cell = (name) => rows[0][headers.indexOf(name)];
+
+  assert.equal(cell("Back online"), "2026-01-17T12:00:00.000Z");
+  assert.equal(cell("Days to green"), 14.5);
+});
+
+// A zero would average in as if the repository were instant, which is the
+// opposite of what a repository that never got there means.
+test("a repository not yet green exports a blank, not a zero", () => {
+  const { headers, rows } = migrationCsv([row], {});
+  const cell = (name) => rows[0][headers.indexOf(name)];
+
+  assert.equal(cell("Back online"), "");
+  assert.equal(cell("Days to green"), null);
 });
 
 test("the export is exactly the rows it was given", () => {

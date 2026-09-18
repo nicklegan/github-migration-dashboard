@@ -10,7 +10,7 @@ import SourceCells from "./SourceCells.jsx";
 import ExportCsvButton from "./ExportCsvButton.jsx";
 import Blankslate from "./Blankslate.jsx";
 import Icon from "./Icon.jsx";
-import { useSort, SortableTh, OrgCell } from "./table.jsx";
+import { useSort, SortableTh, OrgCell, MovedLabel } from "./table.jsx";
 import { useFillViewport } from "../useFillViewport.js";
 
 const STATUS_LABEL = {
@@ -268,6 +268,7 @@ export default function WorkflowsTable({ repositories, teamLabel = "Team", serve
                           </span>
                         </span>
                         {!single && <span className="counter counter-sm">{group.count} workflows</span>}
+                        <MovedLabel row={group} />
                       </td>
                       <td className="fg-muted">{platformOf(group) ?? "—"}</td>
                       <SourceCells url={group.sourceUrl} sourceType={group.sourceType} />

@@ -61,17 +61,20 @@ test("the batched attribute query passes repo names as variables", () => {
 // call count is the thing under test.
 function runsOctokit(byStatus) {
   const calls = [];
+  const pages = [];
   return {
     calls,
+    pages,
     rest: {
       actions: {
         listRepoWorkflows: async () => ({
           data: { workflows: [{ id: 1, name: "CI", path: ".github/workflows/ci.yml", state: "active" }] },
         }),
-        listWorkflowRuns: async ({ status }) => {
+        listWorkflowRuns: async ({ status, page }) => {
           calls.push(status);
+          pages.push(page ?? null);
           const runs = byStatus[status] ?? [];
-          const total = status === "completed" ? (byStatus.total ?? runs.length) : runs.length;
+          const total = status === "completed" ? (byStatus.total ?? runs.length) : (byStatus.successes ?? runs.length);
           return { data: { total_count: total, workflow_runs: runs } };
         },
       },
@@ -80,12 +83,28 @@ function runsOctokit(byStatus) {
   };
 }
 
-test("a workflow that ever succeeded is settled in one call", async () => {
-  const octokit = runsOctokit({ success: [{ conclusion: "success" }] });
+// A success still settles the status in one call. Dating it costs one more, and
+// only for a workflow that has ever succeeded — runs come back newest first, so
+// the last single-run page is the oldest.
+test("a workflow that ever succeeded is settled in one call, and dated in one more", async () => {
+  const octokit = runsOctokit({
+    success: [{ conclusion: "success", updated_at: "2026-03-04T10:00:00Z" }],
+    successes: 12,
+  });
   const [wf] = await fetchWorkflowInventory(octokit, "o", "r", new Budget({}));
 
   assert.equal(wf.status, "succeeded");
-  assert.deepEqual(octokit.calls, ["success"]);
+  assert.equal(wf.firstSuccessAt, "2026-03-04T10:00:00Z");
+  assert.deepEqual(octokit.calls, ["success", "success"]);
+  assert.deepEqual(octokit.pages, [null, 12], "the oldest success is the last page");
+});
+
+test("a workflow that never succeeded is not dated", async () => {
+  const octokit = runsOctokit({ completed: [{ conclusion: "failure" }] });
+  const [wf] = await fetchWorkflowInventory(octokit, "o", "r", new Budget({}));
+
+  assert.equal(wf.status, "failing");
+  assert.equal(wf.firstSuccessAt, null);
 });
 
 test("a failing workflow is settled in two calls, whichever way it failed", async () => {

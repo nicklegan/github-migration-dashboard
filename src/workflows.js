@@ -72,12 +72,22 @@ async function fetchWorkflowInventory(octokit, org, repo, budget, known = {}) {
     const before = known[workflow.path];
 
     if (before?.classifiedAt) {
+      // A workflow classified before this version has a status but no date. It
+      // is dated on the next re-list rather than left undatable forever, which
+      // costs the two calls once and nothing after.
+      const dated =
+        before.status === "succeeded" && !before.firstSuccessAt
+          ? await dateFirstSuccess(octokit, org, repo, workflow.id, budget)
+          : (before.firstSuccessAt ?? null);
+      if (budget.exhausted.has("rest")) return null;
+
       rows.push({
         name: workflow.name,
         path: workflow.path,
         workflowId: workflow.id,
         state: workflow.state,
         status: before.status,
+        firstSuccessAt: dated,
         reusable: before.reusable ?? false,
         manual: before.manual ?? false,
         classifiedAt: before.classifiedAt,
@@ -86,9 +96,9 @@ async function fetchWorkflowInventory(octokit, org, repo, budget, known = {}) {
       continue;
     }
 
-    const status = await classifyWorkflow(octokit, org, repo, workflow.id, budget);
+    const classified = await classifyWorkflow(octokit, org, repo, workflow.id, budget);
     const { reusable, manual } =
-      status === "idle"
+      classified.status === "idle"
         ? await fetchTriggerClass(octokit, org, repo, workflow.path, budget)
         : { reusable: false, manual: false };
     // A classification cut short by the budget is a guess, and storing it with
@@ -101,7 +111,8 @@ async function fetchWorkflowInventory(octokit, org, repo, budget, known = {}) {
       path: workflow.path,
       workflowId: workflow.id,
       state: workflow.state,
-      status,
+      status: classified.status,
+      firstSuccessAt: classified.firstSuccessAt,
       reusable,
       manual,
       classifiedAt: new Date().toISOString(),
@@ -117,10 +128,20 @@ async function fetchWorkflowInventory(octokit, org, repo, budget, known = {}) {
 // skipped ones, and one page of recent completed runs answers that; a workflow
 // with more than a hundred completed runs and not one success is failing in any
 // reading that matters.
+//
+// Returns the date of the *first* success as well, which is when the workflow
+// came back to life. Runs are listed newest first, so with one run per page the
+// last page is the oldest — one extra call, and only for a workflow that has
+// ever succeeded.
 async function classifyWorkflow(octokit, org, repo, workflowId, budget) {
-  if (await hasRuns(octokit, org, repo, workflowId, "success", budget)) return "succeeded";
-
-  if (!budget.take("rest")) return "idle";
+  const successes = await countRuns(octokit, org, repo, workflowId, "success", budget);
+  if (successes > 0) {
+    return {
+      status: "succeeded",
+      firstSuccessAt: await firstRunAt(octokit, org, repo, workflowId, successes, budget),
+    };
+  }
+  if (!budget.take("rest")) return { status: "idle", firstSuccessAt: null };
   const res = await octokit.rest.actions.listWorkflowRuns({
     owner: org,
     repo,
@@ -129,14 +150,24 @@ async function classifyWorkflow(octokit, org, repo, workflowId, budget) {
     per_page: 100,
   });
   const runs = res.data.workflow_runs ?? [];
-  if (runs.some((run) => FAILING_CONCLUSIONS.has(run.conclusion))) return "failing";
-  if (res.data.total_count > runs.length) return "failing";
-  return "idle";
+  if (runs.some((run) => FAILING_CONCLUSIONS.has(run.conclusion))) {
+    return { status: "failing", firstSuccessAt: null };
+  }
+  if (res.data.total_count > runs.length) return { status: "failing", firstSuccessAt: null };
+  return { status: "idle", firstSuccessAt: null };
+}
+
+// Dates a workflow already known to have succeeded, for records written before
+// the date was collected.
+async function dateFirstSuccess(octokit, org, repo, workflowId, budget) {
+  const successes = await countRuns(octokit, org, repo, workflowId, "success", budget);
+  if (successes === 0) return null;
+  return firstRunAt(octokit, org, repo, workflowId, successes, budget);
 }
 
 // Reads only total_count (per_page=1); never pages the runs.
-async function hasRuns(octokit, org, repo, workflowId, status, budget) {
-  if (!budget.take("rest")) return false;
+async function countRuns(octokit, org, repo, workflowId, status, budget) {
+  if (!budget.take("rest")) return 0;
   const res = await octokit.rest.actions.listWorkflowRuns({
     owner: org,
     repo,
@@ -144,7 +175,24 @@ async function hasRuns(octokit, org, repo, workflowId, status, budget) {
     status,
     per_page: 1,
   });
-  return res.data.total_count > 0;
+  return res.data.total_count ?? 0;
+}
+
+// The oldest run of a status, fetched by asking for the last single-run page.
+async function firstRunAt(octokit, org, repo, workflowId, total, budget) {
+  if (!budget.take("rest")) return null;
+  const res = await octokit.rest.actions.listWorkflowRuns({
+    owner: org,
+    repo,
+    workflow_id: workflowId,
+    status: "success",
+    per_page: 1,
+    page: total,
+  });
+  const run = res.data.workflow_runs?.[0];
+  // `updated_at` stands in for when the run finished, which is what the audit
+  // feed reports for the runs it sees live.
+  return run?.updated_at ?? run?.run_started_at ?? run?.created_at ?? null;
 }
 
 async function fetchTriggerClass(octokit, org, repo, path, budget) {

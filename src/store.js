@@ -121,14 +121,18 @@ class Store {
   // so discarding them would not just cost a re-read — anything older than that
   // window could never be recovered. Each cursor's own shape is versioned where
   // it is read instead.
+  // Everything written is read back: a whitelist here silently drops any field
+  // a later version adds, and the loss is invisible — the field is rewritten
+  // every run, so the file looks right while the value never survives a run.
   readState() {
-    const state = readJson(path.join(this.root, "state.json"), null) ?? {};
+    const { auditCursors, ...state } = readJson(path.join(this.root, "state.json"), null) ?? {};
     return {
+      ...state,
       schema: SCHEMA,
       migrationCursors: state.migrationCursors ?? {},
       // The enterprise stream has one cursor. Data written when the feed was
       // read per organization is handed over as-is; auditFeed folds it.
-      auditCursor: state.auditCursor ?? state.auditCursors ?? null,
+      auditCursor: state.auditCursor ?? auditCursors ?? null,
       // Where the next run starts its sweep, so a spent budget does not starve
       // the same organizations every time.
       nextOrg: state.nextOrg ?? null,

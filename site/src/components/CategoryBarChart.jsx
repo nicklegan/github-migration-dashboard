@@ -269,6 +269,9 @@ export default function CategoryBarChart({
           </BarChart>
         </ResponsiveContainer>
       )}
+      {/* Set by a breakdown that had to leave categories out, so the chart can
+          say so rather than quietly showing fewer than it was given. */}
+      {data?.note && <p className="chart-footnote">{data.note}</p>}
     </div>
   );
 }

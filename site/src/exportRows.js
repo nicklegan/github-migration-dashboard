@@ -29,6 +29,7 @@ function migrationCsv(rows, { teamLabel = "Team", serverUrl = null } = {}) {
     "Target organization",
     "Target repository",
     "Target URL",
+    "Migrated as",
     "Source",
     "Source namespace",
     "Source repository",
@@ -42,6 +43,8 @@ function migrationCsv(rows, { teamLabel = "Team", serverUrl = null } = {}) {
     "Removed",
     "Superseded by",
     "Onboarding",
+    "Back online",
+    "Days to green",
   ];
 
   return {
@@ -51,6 +54,8 @@ function migrationCsv(rows, { teamLabel = "Team", serverUrl = null } = {}) {
       row.organization,
       row.repository,
       targetUrl(serverUrl, row) ?? "",
+      // Empty unless the repository was renamed or transferred after migrating.
+      row.movedFrom ?? "",
       platformOf(row) ?? "",
       ...sourceCells(row.sourceUrl),
       row.team ?? "",
@@ -62,6 +67,10 @@ function migrationCsv(rows, { teamLabel = "Team", serverUrl = null } = {}) {
       Boolean(row.removed),
       row.supersededBy ?? "",
       row.onboarding ?? "",
+      isoDate(row.backOnlineAt),
+      // Blank rather than zero: a repository that has not got there yet has no
+      // number, and a zero would average as if it were instant.
+      row.daysToGreen == null ? null : Math.round(row.daysToGreen * 10) / 10,
     ]),
   };
 }

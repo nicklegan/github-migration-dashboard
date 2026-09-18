@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   emptyRepo,
+  repoLocation,
+  isSameRepository,
   applyWorkflowRun,
   applyWorkflowInventory,
   applyRepoAttributes,
@@ -9,6 +11,7 @@ import {
   applyMigration,
   dedupeWorkflows,
   workflowCounts,
+  backOnlineAt,
   inOnboarding,
   onboardingWindowMs,
   onboardingClosesAt,
@@ -142,6 +145,59 @@ test("attributes clear on an explicit null but survive an omitted key", () => {
   assert.equal(applyRepoAttributes(withTeam, {}).repoSizeMB, 10);
 });
 
+// The record stays keyed by the name the repository was migrated under, so
+// where it lives now is an attribute of it rather than a new record.
+test("a repository that moved records where it went, and when it was noticed", () => {
+  const moved = applyRepoAttributes(
+    repo(),
+    { repoId: "R_1", nameWithOwner: "org-b/platform-api" },
+    "2026-03-01T00:00:00Z",
+  );
+
+  assert.equal(moved.org, "org-a", "the migration-time owner is untouched");
+  assert.equal(moved.currentOrg, "org-b");
+  assert.equal(moved.currentRepository, "platform-api");
+  assert.equal(moved.renamedAt, "2026-03-01T00:00:00Z");
+
+  // Seen in the same place again: the date it was first noticed stands.
+  const again = applyRepoAttributes(
+    moved,
+    { repoId: "R_1", nameWithOwner: "org-b/platform-api" },
+    "2026-06-01T00:00:00Z",
+  );
+  assert.equal(again.renamedAt, "2026-03-01T00:00:00Z");
+
+  // Renamed back is not renamed at all.
+  const back = applyRepoAttributes(
+    again,
+    { repoId: "R_1", nameWithOwner: "org-a/api" },
+    "2026-07-01T00:00:00Z",
+  );
+  assert.equal(back.currentOrg, null);
+  assert.equal(back.currentRepository, null);
+  assert.equal(back.renamedAt, null);
+});
+
+// A name lookup follows a rename only until the old name is taken by a new
+// repository, and then resolves to a stranger.
+test("identity is the node id, not the name", () => {
+  const known = { repoId: "R_ours" };
+
+  assert.equal(isSameRepository(known, "R_ours"), true);
+  assert.equal(isSameRepository(known, "R_theirs"), false);
+  // Records written before ids were stored have nothing to compare against.
+  assert.equal(isSameRepository({}, "R_theirs"), true);
+  assert.equal(isSameRepository(known, null), true);
+});
+
+test("a repository is looked up where it lives now", () => {
+  assert.deepEqual(repoLocation(null, "org-a", "api"), { owner: "org-a", name: "api" });
+  assert.deepEqual(
+    repoLocation({ currentOrg: "org-b", currentRepository: "platform-api" }, "org-a", "api"),
+    { owner: "org-b", name: "platform-api" },
+  );
+});
+
 test("deletion is recorded once and never overwritten", () => {
   const deleted = applyRepoDeleted(repo(), "2026-01-01T00:00:00Z");
   assert.equal(applyRepoDeleted(deleted, "2026-05-01T00:00:00Z").deletedAt, "2026-01-01T00:00:00Z");
@@ -172,6 +228,172 @@ test("workflow counts exclude reusable workflows", () => {
     "2026-01-01T00:00:00Z",
   );
   assert.deepEqual(workflowCounts(record), { succeeded: 1, failing: 0, idle: 1, manual: 0, postOnboarding: 0 });
+});
+
+// The repository is back online when its LAST workflow goes green, so the date
+// is the maximum of the first successes — not the minimum.
+test("a repository is dated green by the last workflow to get there", () => {
+  const record = applyWorkflowInventory(
+    repo(),
+    [
+      { name: "CI", path: "a.yml", status: "succeeded", firstSuccessAt: "2026-01-02T00:00:00Z" },
+      { name: "Release", path: "b.yml", status: "succeeded", firstSuccessAt: "2026-01-09T00:00:00Z" },
+    ],
+    "2026-01-01T00:00:00Z",
+  );
+
+  assert.equal(backOnlineAt(record), "2026-01-09T00:00:00Z");
+});
+
+test("a repository with anything still red or never run is not dated", () => {
+  const failing = applyWorkflowInventory(
+    repo(),
+    [
+      { name: "CI", path: "a.yml", status: "succeeded", firstSuccessAt: "2026-01-02T00:00:00Z" },
+      { name: "Release", path: "b.yml", status: "failing" },
+    ],
+    "2026-01-01T00:00:00Z",
+  );
+  assert.equal(backOnlineAt(failing), null);
+
+  const idle = applyWorkflowInventory(
+    repo(),
+    [
+      { name: "CI", path: "a.yml", status: "succeeded", firstSuccessAt: "2026-01-02T00:00:00Z" },
+      { name: "Nightly", path: "b.yml", status: "idle" },
+    ],
+    "2026-01-01T00:00:00Z",
+  );
+  assert.equal(backOnlineAt(idle), null);
+});
+
+// The same exclusions the counts use, or the date would answer a different
+// question from the badge beside it.
+test("dating ignores the workflows the counts ignore", () => {
+  const record = applyWorkflowInventory(
+    repo(),
+    [
+      { name: "CI", path: "a.yml", status: "succeeded", firstSuccessAt: "2026-01-02T00:00:00Z" },
+      { name: "Shared", path: "b.yml", status: "idle", reusable: true },
+      { name: "Deploy", path: "c.yml", status: "idle", manual: true },
+    ],
+    "2026-01-01T00:00:00Z",
+  );
+
+  assert.equal(backOnlineAt(record), "2026-01-02T00:00:00Z");
+});
+
+// A repository whose workflows all predate the dating cannot be placed on the
+// curve; guessing a date would invent a recovery that was never observed.
+test("a success with no date leaves the repository undated", () => {
+  const record = applyWorkflowInventory(
+    repo(),
+    [{ name: "CI", path: "a.yml", status: "succeeded" }],
+    "2026-01-01T00:00:00Z",
+  );
+
+  assert.equal(backOnlineAt(record), null);
+});
+
+test("a repository with nothing scored is not dated green", () => {
+  const record = applyWorkflowInventory(
+    repo(),
+    [{ name: "Shared", path: "b.yml", status: "idle", reusable: true }],
+    "2026-01-01T00:00:00Z",
+  );
+
+  assert.equal(backOnlineAt(record), null);
+});
+
+// Success is monotonic, so the first one is the one that counts — but events
+// arrive out of order, and an older success has to win.
+test("the first success is kept, whichever order the runs arrive in", () => {
+  let record = applyWorkflowRun(repo(), {
+    workflowKey: "ci.yml",
+    workflowId: 1,
+    name: "CI",
+    conclusion: "success",
+    completedAt: "2026-02-10T00:00:00Z",
+  });
+  assert.equal(record.workflows["ci.yml"].firstSuccessAt, "2026-02-10T00:00:00Z");
+
+  record = applyWorkflowRun(record, {
+    workflowKey: "ci.yml",
+    workflowId: 1,
+    name: "CI",
+    conclusion: "success",
+    completedAt: "2026-03-01T00:00:00Z",
+  });
+  assert.equal(record.workflows["ci.yml"].firstSuccessAt, "2026-02-10T00:00:00Z", "a later run does not move it");
+
+  record = applyWorkflowRun(record, {
+    workflowKey: "ci.yml",
+    workflowId: 1,
+    name: "CI",
+    conclusion: "success",
+    completedAt: "2026-01-05T00:00:00Z",
+  });
+  assert.equal(record.workflows["ci.yml"].firstSuccessAt, "2026-01-05T00:00:00Z", "a redelivered older run does");
+});
+
+test("a failing run does not date a workflow green", () => {
+  const record = applyWorkflowRun(repo(), {
+    workflowKey: "ci.yml",
+    workflowId: 1,
+    name: "CI",
+    conclusion: "failure",
+    completedAt: "2026-02-10T00:00:00Z",
+  });
+
+  assert.equal(record.workflows["ci.yml"].firstSuccessAt, null);
+});
+
+// A workflow that was already green before the action started dating cannot be
+// dated from a run now — that run is not its first success, and recording it
+// would report a months-old recovery as today's.
+test("a later run never becomes the first success of an already-green workflow", () => {
+  const green = applyWorkflowInventory(
+    repo(),
+    [{ name: "CI", path: "a.yml", status: "succeeded" }],
+    "2026-01-01T00:00:00Z",
+  );
+  assert.equal(green.workflows["a.yml"].firstSuccessAt, null);
+
+  const ran = applyWorkflowRun(green, {
+    workflowKey: "a.yml",
+    workflowId: 1,
+    name: "CI",
+    conclusion: "success",
+    completedAt: "2026-09-01T00:00:00Z",
+  });
+
+  assert.equal(ran.workflows["a.yml"].firstSuccessAt, null, "left undated rather than misdated");
+});
+
+// The inventory reads the date from history, so it can only be older than what
+// run events already saw; a re-inventory must not lose it either way.
+test("re-inventorying keeps the earlier of the two dates", () => {
+  const seen = applyWorkflowRun(repo(), {
+    workflowKey: "a.yml",
+    workflowId: 1,
+    name: "CI",
+    conclusion: "success",
+    completedAt: "2026-02-10T00:00:00Z",
+  });
+
+  const older = applyWorkflowInventory(
+    seen,
+    [{ name: "CI", path: "a.yml", status: "succeeded", firstSuccessAt: "2026-01-04T00:00:00Z" }],
+    "2026-03-01T00:00:00Z",
+  );
+  assert.equal(older.workflows["a.yml"].firstSuccessAt, "2026-01-04T00:00:00Z");
+
+  const undated = applyWorkflowInventory(
+    older,
+    [{ name: "CI", path: "a.yml", status: "succeeded" }],
+    "2026-04-01T00:00:00Z",
+  );
+  assert.equal(undated.workflows["a.yml"].firstSuccessAt, "2026-01-04T00:00:00Z", "an undated re-read keeps it");
 });
 
 test("a repository seen alive is not hidden by an older deletion event", () => {

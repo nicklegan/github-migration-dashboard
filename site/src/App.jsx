@@ -21,8 +21,10 @@ import {
   onboardingTeamBreakdown,
   onboardingOrgBreakdown,
   onboardingPlatformBreakdown,
+  platformLabelOf,
   sizeDurationSeries,
 } from "./distributions.js";
+import { medianDaysToOnboard } from "./recovery.js";
 import {
   applyFilters,
   toggleSelections,
@@ -42,6 +44,8 @@ import CrossFilterBar from "./components/CrossFilterBar.jsx";
 import MigrationsTable from "./components/MigrationsTable.jsx";
 import WorkflowsTable from "./components/WorkflowsTable.jsx";
 import TimelineChart from "./components/TimelineChart.jsx";
+import RecoveryCurveChart from "./components/RecoveryCurveChart.jsx";
+import RecoveryPulseChart from "./components/RecoveryPulseChart.jsx";
 import AppHeader from "./components/AppHeader.jsx";
 import Blankslate, { TableSkeleton } from "./components/Blankslate.jsx";
 import Icon from "./components/Icon.jsx";
@@ -65,12 +69,13 @@ function workflowTimelineCounts(row) {
   };
 }
 
-// Onboarded, still inside its window, and window closed with workflows that
-// never ran — the last of which is the only one anyone has to act on.
+// The three states a migration can be in against its window. One set of words
+// for them everywhere on the tab — cards, curve, and breakdown — so nothing has
+// to be translated between charts.
 const ONBOARDING_SERIES = (green, red, amber) => [
   { key: "complete", name: "Onboarded", color: green, filterValue: "Onboarded" },
   { key: "inProgress", name: "Onboarding", color: amber, filterValue: "Onboarding" },
-  { key: "incomplete", name: "Incomplete", color: red, filterValue: "Incomplete" },
+  { key: "incomplete", name: "Not onboarded", color: red, filterValue: "Not onboarded" },
 ];
 
 export default function App() {
@@ -82,7 +87,9 @@ export default function App() {
   const [range, setRange] = useState("all");
   const [filters, setFilters] = useState({});
   const [showRemoved, setShowRemoved] = useState(false);
-  const [tab, setTab] = useState("overview");
+  // Null until the reader picks one, so the default can depend on data that has
+  // not loaded yet rather than being fixed before the summary arrives.
+  const [tab, setTab] = useState(null);
 
   useEffect(() => {
     loadSummary().then(setSummary).catch((err) => setError(err.message));
@@ -175,8 +182,7 @@ export default function App() {
       workflows,
       scope: {
         ...onboardingBreakdown(scopeFor()),
-        ...workflowTotals(scopeFor()),
-      },
+        ...workflowTotals(scopeFor()),      },
       repoState: stateBreakdown(byState)
         .filter((s) => s.state === "SUCCEEDED" || s.state === "FAILED" || s.state === "SUPERSEDED")
         .map((s) => ({ name: s.state, value: s.count, color: stateColors[s.state] || GRAY })),
@@ -203,6 +209,21 @@ export default function App() {
       onboardingTeams: onboardingTeamBreakdown(scopeFor(["team", "onboarding"])),
       onboardingOrgs: onboardingOrgBreakdown(scopeFor(["org", "onboarding"])),
       onboardingPlatforms: onboardingPlatformBreakdown(scopeFor(["sourcePlatform", "onboarding"])),
+      // The rows the onboarding charts plot, for the same reason: their x-axis
+      // is each repository's own window, not the calendar.
+      onboardingRows: scopeFor(),
+      timeToOnboardOrgs: medianDaysToOnboard(scopeFor(["org"]), {
+        groupOf: (row) => row.organization || "Unknown",
+        keyName: "org",
+      }),
+      timeToOnboardTeams: medianDaysToOnboard(scopeFor(["team"]), {
+        groupOf: (row) => row.team || "Unassigned",
+        keyName: "team",
+      }),
+      timeToOnboardPlatforms: medianDaysToOnboard(scopeFor(["sourcePlatform"]), {
+        groupOf: platformLabelOf,
+        keyName: "sourcePlatform",
+      }),
       workflowPlatforms: workflowPlatformBreakdown(rowsFor(["sourcePlatform", "workflowState"])),
       workflowTeams: workflowTeamBreakdown(rowsFor(["team", "workflowState"])),
       workflowOrgs: workflowOrgBreakdown(rowsFor(["org", "workflowState"])),
@@ -233,6 +254,16 @@ export default function App() {
     : summaryStates(summary, stateColors, GRAY);
   const hasFilters = Object.keys(filters).length > 0;
   const windowDays = summary.onboardingWindowDays ?? 0;
+  // Onboarding leads only when there is something in it: no window configured,
+  // or nothing measured against one yet, and it is not a tab at all.
+  const onboardingTotals = summary.onboarding ?? {};
+  const hasOnboarding =
+    windowDays > 0 &&
+    (onboardingTotals.inProgress ?? 0) +
+      (onboardingTotals.complete ?? 0) +
+      (onboardingTotals.incomplete ?? 0) >
+      0;
+  const activeTab = tab ?? (hasOnboarding ? "onboarding" : "overview");
   const clearFilters = () => setFilters({});
   const selected = (dimension) => selectedValues(filters, dimension);
   // The same measure broken down three ways, for the charts' dimension toggle.
@@ -251,6 +282,9 @@ export default function App() {
       <main className="app">
       <TabBar
         tabs={[
+          ...(hasOnboarding
+            ? [{ key: "onboarding", label: "Onboarding", icon: <Icon name="pulse" /> }]
+            : []),
           { key: "overview", label: "Overview", icon: <Icon name="mark-github" /> },
           {
             key: "repositories",
@@ -265,20 +299,27 @@ export default function App() {
             count: views ? views.workflowCount : null,
           },
         ]}
-        value={tab}
+        value={activeTab}
         onChange={setTab}
       >
-        <TimeFilter value={range} onChange={setRange} />
-        {summary.removed > 0 && (
-          <button
-            type="button"
-            className={`removed-toggle${showRemoved ? " is-active" : ""}`}
-            aria-pressed={showRemoved}
-            onClick={() => setShowRemoved((on) => !on)}
-            title="Repositories that migrated successfully but have since been deleted on the target"
-          >
-            {showRemoved ? "Hide" : "Show"} {summary.removed} removed
-          </button>
+        {/* Onboarding measures every migration against its own window, so a
+            calendar range would only ever mislead there — and a repository that
+            has since been deleted has no onboarding to report either way. */}
+        {activeTab !== "onboarding" && (
+          <>
+            <TimeFilter value={range} onChange={setRange} />
+            {summary.removed > 0 && (
+              <button
+                type="button"
+                className={`removed-toggle${showRemoved ? " is-active" : ""}`}
+                aria-pressed={showRemoved}
+                onClick={() => setShowRemoved((on) => !on)}
+                title="Repositories that migrated successfully but have since been deleted on the target"
+              >
+                {showRemoved ? "Hide" : "Show"} {summary.removed} removed
+              </button>
+            )}
+          </>
         )}
       </TabBar>
 
@@ -293,9 +334,9 @@ export default function App() {
         </div>
       )}
 
-      {tab === "overview" && (
+      {activeTab === "overview" && (
       <div role="tabpanel" id="panel-overview" aria-labelledby="tab-overview">
-      <h2 className="section-title">Repositories</h2>
+      <h2 className="section-title">What moved</h2>
       <RepositoryCards kpis={kpis} deltas={views?.deltas} />
       <section className="charts">
         <CategoryBarChart
@@ -408,7 +449,7 @@ export default function App() {
       )}
 
       <h2 className="section-title">
-        Actions workflows
+        What still runs
         {windowDays > 0 && (
           <span className="section-note">
             The {windowDays}-day window decides which workflows count
@@ -462,39 +503,76 @@ export default function App() {
         </section>
       )}
 
-      {views && windowDays > 0 && (
-        <>
-          <h2 className="section-title">
-            Onboarding
-            <span className="section-note">
-              Every migration against its {windowDays}-day window, whatever the time range
-            </span>
-          </h2>
-          <OnboardingCards scope={views.scope} windowDays={windowDays} />
-          <section className="charts">
-            <CategoryBarChart
-              title="Back online"
-              subtitle={`Repositories whose workflows ran within ${windowDays} days of migrating`}
-              groups={breakdownGroups({
-                org: views.onboardingOrgs,
-                team: views.onboardingTeams,
-                sourcePlatform: views.onboardingPlatforms,
-              })}
-              activeValuesFor={selected}
-              stacked
-              seriesDimension="onboarding"
-              activeSeriesValues={selected("onboarding")}
-              onSelect={select}
-              onSelectCombination={selectCombination}
-              series={ONBOARDING_SERIES(GREEN, RED, AMBER)}
-            />
-          </section>
-        </>
-      )}
       </div>
       )}
 
-      {tab === "repositories" && (
+      {activeTab === "onboarding" && (
+        <div role="tabpanel" id="panel-onboarding" aria-labelledby="tab-onboarding">
+          <h2 className="section-title">
+            Onboarding
+            <span className="section-note">
+              Every migration against its {windowDays}-day window, however long ago it happened
+            </span>
+          </h2>
+          {views ? (
+            <>
+              <OnboardingCards scope={views.scope} windowDays={windowDays} />
+              <section className="charts charts-full">
+                <RecoveryCurveChart
+                  title="Getting back online"
+                  subtitle="How far into its window a repository is running again"
+                  rows={views.onboardingRows}
+                  windowDays={windowDays}
+                  nowMs={nowMs}
+                />
+              </section>
+              <section className="charts charts-full">
+                <RecoveryPulseChart
+                  title="Arrivals and recoveries"
+                  subtitle="Repositories migrating against repositories coming back online"
+                  rows={views.onboardingRows}
+                  range="all"
+                  nowMs={nowMs}
+                />
+              </section>
+              <section className="charts">
+                <CategoryBarChart
+                  title="Onboarding status"
+                  subtitle="Where each group's repositories stand against their window"
+                  groups={breakdownGroups({
+                    org: views.onboardingOrgs,
+                    team: views.onboardingTeams,
+                    sourcePlatform: views.onboardingPlatforms,
+                  })}
+                  activeValuesFor={selected}
+                  stacked
+                  seriesDimension="onboarding"
+                  activeSeriesValues={selected("onboarding")}
+                  onSelect={select}
+                  onSelectCombination={selectCombination}
+                  series={ONBOARDING_SERIES(GREEN, RED, AMBER)}
+                />
+                <CategoryBarChart
+                  title="Time to onboard"
+                  subtitle="Median days from migrating to every workflow green, slowest first"
+                  groups={breakdownGroups({
+                    org: views.timeToOnboardOrgs,
+                    team: views.timeToOnboardTeams,
+                    sourcePlatform: views.timeToOnboardPlatforms,
+                  })}
+                  activeValuesFor={selected}
+                  onSelect={select}
+                  series={[{ key: "days", name: "Median days", color: categorical[0] }]}
+                />
+              </section>
+            </>
+          ) : (
+            <RowsLoading progress={progress} />
+          )}
+        </div>
+      )}
+
+      {activeTab === "repositories" && (
         <div role="tabpanel" id="panel-repositories" aria-labelledby="tab-repositories">
           <RepositoryCards kpis={kpis} deltas={views?.deltas} />
           {views ? (
@@ -511,7 +589,7 @@ export default function App() {
         </div>
       )}
 
-      {tab === "workflows" && (
+      {activeTab === "workflows" && (
         <div role="tabpanel" id="panel-workflows" aria-labelledby="tab-workflows">
           <WorkflowCards workflows={workflowTotalsView} windowDays={windowDays} deltas={views?.deltas} />
           {views ? (

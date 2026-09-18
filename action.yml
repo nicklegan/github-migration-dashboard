@@ -36,6 +36,10 @@ inputs:
     description: How often to refresh team and size once a repository is past its onboarding window. Ownership can change long after a migration, so this keeps the team identifier current. 0 freezes attributes at window close, which also stops confirming the repository is still there.
     required: false
     default: '7'
+  refresh-attributes:
+    description: Re-read team, size, and current location for every migrated repository this run, ignoring the TTLs. Use from a workflow_dispatch after reorganizing repositories, to pick up renames and transfers without waiting for them to go stale. Costs one GraphQL request per 100 repositories.
+    required: false
+    default: 'false'
   onboarding-window-days:
     description: How long after a successful migration a newly added workflow still counts as part of that migration. Workflows first seen after the window are reported separately and excluded from migration metrics; re-listing also stops, which keeps the per-run cost proportional to the migration rate rather than the size of the estate. 0 disables the window, and with it that cost ceiling.
     required: false

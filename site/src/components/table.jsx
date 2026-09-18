@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import Icon from "./Icon.jsx";
+import { dateTime } from "../format.js";
 import { compareWithBlanksLast } from "../sortRows.js";
 
 // Column sorting shared by both tables. `columns` maps a key to an accessor; the
@@ -72,5 +73,21 @@ export function OrgCell({ serverUrl, org }) {
         {org}
       </span>
     </td>
+  );
+}
+
+// A repository renamed or transferred after migrating is listed where it lives
+// now, so the name it was migrated under is worth saying — it is what the
+// migration records, the source system, and any runbook still call it.
+export function MovedLabel({ row }) {
+  if (!row?.movedFrom) return null;
+  const slash = row.movedFrom.indexOf("/");
+  const sameOrg = row.movedFrom.slice(0, slash) === row.organization;
+  const when = row.movedAt ? ` Noticed ${dateTime(row.movedAt)}.` : "";
+  return (
+    <span className="label" title={`Migrated as ${row.movedFrom}.${when}`}>
+      {/* A rename within the organization repeats it otherwise. */}
+      was {sameOrg ? row.movedFrom.slice(slash + 1) : row.movedFrom}
+    </span>
   );
 }
