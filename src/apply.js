@@ -150,6 +150,26 @@ function applyWorkflowInventory(repo, workflows, observedAt) {
   return { ...repo, workflows: next, workflowsBootstrappedAt: observedAt };
 }
 
+// Applies dates found for workflows that were classified before the action
+// recorded them. Only the two dating fields move; everything else the record
+// knows about a workflow is left exactly as it was.
+function applyWorkflowDates(repo, patch) {
+  const keys = Object.keys(patch ?? {});
+  if (keys.length === 0) return repo;
+
+  const workflows = { ...repo.workflows };
+  for (const key of keys) {
+    const before = workflows[key];
+    if (!before) continue;
+    workflows[key] = {
+      ...before,
+      datedAt: patch[key].datedAt,
+      firstSuccessAt: olderOf(before.firstSuccessAt, patch[key].firstSuccessAt) ?? null,
+    };
+  }
+  return { ...repo, workflows };
+}
+
 // Organization-reported attributes. Passing a key with a null value clears it;
 // omitting the key leaves the stored value alone. Being listed at all is proof
 // the repository exists, which clears an earlier deletion — names get reused.
@@ -357,6 +377,7 @@ export {
   isSameRepository,
   applyWorkflowRun,
   applyWorkflowInventory,
+  applyWorkflowDates,
   applyRepoAttributes,
   applyRepoDeleted,
   isAttributeRefreshDue,

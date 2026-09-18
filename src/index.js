@@ -19,6 +19,7 @@ import {
   migratedOrgs,
   isAttributeSweepDue,
   ATTRIBUTE_SCHEMA,
+  DATING_SCHEMA,
 } from "./sync.js";
 import { Store } from "./store.js";
 import { Budget } from "./budget.js";
@@ -130,6 +131,14 @@ async function run() {
     } else {
       core.info(`The attribute sweep was cut short; the remaining organizations re-read next run.`);
     }
+  }
+
+  // The dating back-fill spends REST per workflow, so on a large estate it
+  // takes several runs. The marker is only recorded once a run got through
+  // every organization without hitting a budget.
+  if (state.datingSchema !== DATING_SCHEMA) {
+    if (ranOutAt === null && !budget.truncated) state.datingSchema = DATING_SCHEMA;
+    else core.info(`Dating earlier successes is not finished; it continues next run.`);
   }
   if (ranOutAt) {
     core.warning(

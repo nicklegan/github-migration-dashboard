@@ -117,9 +117,25 @@ test("failed and removed repositories are not part of the population", () => {
   assert.equal(population, 1);
 });
 
-// A repository already green before the action started dating recoveries has no
-// day to be plotted on. Counting it as never recovered would understate every
-// cohort it appears in, so it is left out until a re-list dates it.
+// Leaving out repositories that cannot be dated removes successes without
+// removing failures — a red repository needs no date to count as red. While
+// that exclusion is large the curve reads far too low, so the caller is told
+// how much of the population it is.
+test("the undated share is reported, so the chart can refuse to draw", () => {
+  const rows = [
+    repo(60, { daysToGreen: 5 }),
+    repo(60, { greenUndated: true }),
+    repo(60, { greenUndated: true }),
+    // Neither datable nor undated: nothing scored, so it is out either way.
+    repo(60, { workflows: { succeeded: 0, failing: 0, idle: 0, manual: 2 } }),
+  ];
+
+  const { population, undated } = recoveryCurve(rows, { windowDays: 60, nowMs: NOW });
+
+  assert.equal(population, 1);
+  assert.equal(undated, 2);
+});
+
 test("a repository green from before dating is left out, not counted as red", () => {
   const rows = [repo(60, { daysToGreen: 5 }), repo(60, { greenUndated: true })];
   const { points, population } = recoveryCurve(rows, { windowDays: 60, nowMs: NOW, points: 60 });

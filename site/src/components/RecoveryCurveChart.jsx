@@ -27,7 +27,7 @@ export default function RecoveryCurveChart({ title, subtitle, rows, windowDays, 
   const { tooltipProps, legendProps, AXIS_TICK, AXIS_LINE, GRID, CURSOR, SUCCESS, ATTENTION } =
     useChartTheme();
 
-  const { points, population } = useMemo(
+  const { points, population, undated } = useMemo(
     () => recoveryCurve(rows, { windowDays, nowMs }),
     [rows, windowDays, nowMs],
   );
@@ -36,6 +36,11 @@ export default function RecoveryCurveChart({ title, subtitle, rows, windowDays, 
   const reached = points.at(-1)?.day ?? 0;
   // The window edge is only worth drawing once some cohort has lived through it.
   const showWindow = windowDays > 0 && reached >= windowDays - 1e-9;
+  // Leaving out the repositories that cannot be dated removes successes without
+  // removing failures, so until most of them are dated the line reads far too
+  // low. Better to say how far along the dating is than to draw that.
+  const dated = population + undated > 0 ? population / (population + undated) : 1;
+  const tooFewDated = points.length > 0 && dated < 0.75;
 
   return (
     <div className="chart-card">
@@ -45,8 +50,13 @@ export default function RecoveryCurveChart({ title, subtitle, rows, windowDays, 
           {subtitle && <p className="chart-subtitle">{subtitle}</p>}
         </div>
       </div>
-      {points.length === 0 ? (
-        <p className="chart-empty">No data</p>
+      {points.length === 0 || tooFewDated ? (
+        <p className="chart-empty">
+          {tooFewDated
+            ? `Dated ${population.toLocaleString()} of ${(population + undated).toLocaleString()} repositories so far. ` +
+              `The curve appears once most of them are dated — drawn now it would count the rest as never recovered.`
+            : "No data"}
+        </p>
       ) : (
         <ResponsiveContainer width="100%" height={260}>
           <AreaChart data={points} margin={{ top: 8, right: 12, bottom: 0, left: -18 }}>
@@ -112,19 +122,21 @@ export default function RecoveryCurveChart({ title, subtitle, rows, windowDays, 
           </AreaChart>
         </ResponsiveContainer>
       )}
-      <p className="chart-footnote">
-        {population.toLocaleString()} migrated repositories. Each day counts only the repositories
-        that have had that long since migrating, so the curve is not dragged down by this week's
-        arrivals.
-        {late > 0 && (
-          <>
-            {" "}
-            A further {late.toLocaleString()} came back only after their window closed. The cards
-            above count them as onboarded, because they measure where repositories stand today;
-            this curve does not, because it measures what happened inside the window.
-          </>
-        )}
-      </p>
+      {!tooFewDated && (
+        <p className="chart-footnote">
+          {population.toLocaleString()} migrated repositories. Each day counts only the repositories
+          that have had that long since migrating, so the curve is not dragged down by this week's
+          arrivals.
+          {late > 0 && (
+            <>
+              {" "}
+              A further {late.toLocaleString()} came back only after their window closed. The cards
+              above count them as onboarded, because they measure where repositories stand today;
+              this curve does not, because it measures what happened inside the window.
+            </>
+          )}
+        </p>
+      )}
     </div>
   );
 }

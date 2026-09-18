@@ -220,6 +220,12 @@ tab can chart how long it took. One with nothing scored, or whose success predat
 these dates being recorded, sits out of the charts rather than counting as never
 recovered.
 
+An estate migrated before this existed is dated by a one-time back-fill: two
+requests per already-succeeded workflow, spread across runs and resumable, and it
+reaches settled repositories that the workflow re-list no longer visits. Until
+most of the estate is dated the curve withholds itself and reports its progress,
+because leaving the undated out drops successes without dropping failures.
+
 A repository counts as migrated when **any** attempt succeeded. A retry into a
 *different* repository name marks the original `SUPERSEDED`, so it stops
 counting as an outstanding failure without vanishing. A repository that

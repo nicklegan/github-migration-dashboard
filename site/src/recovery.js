@@ -24,7 +24,12 @@ const MIN_AT_RISK = 5;
 // it is drawn from the few cohorts old enough to have got there.
 function recoveryCurve(rows, { windowDays, nowMs = Date.now(), points = 40 } = {}) {
   const population = rows.filter(eligible);
-  if (population.length === 0 || !(windowDays > 0)) return { points: [], population: 0 };
+  // Repositories that are green but cannot be dated. They are left out, and
+  // that exclusion is one-sided — a red repository needs no date to be counted
+  // red — so while this is large the curve reads far too low. The caller uses it
+  // to decide whether the curve is worth drawing at all.
+  const undated = rows.filter((row) => row.greenUndated && datable(row)).length;
+  if (population.length === 0 || !(windowDays > 0)) return { points: [], population: 0, undated };
 
   const elapsed = population.map((row) => (nowMs - Date.parse(row.migratedAt ?? row.createdAt)) / DAY_MS);
   const step = windowDays / Math.max(1, points);
@@ -56,26 +61,24 @@ function recoveryCurve(rows, { windowDays, nowMs = Date.now(), points = 40 } = {
     });
   }
 
-  return { points: series, population: population.length };
+  return { points: series, population: population.length, undated };
 }
 
-// Only repositories that actually migrated and have a window to be measured
-// against. A failed migration never created a repository to recover, and a
-// removed one is no longer part of the estate.
-//
-// A repository already green when the action started dating recoveries is left
-// out too: it cannot be placed on the curve, and counting it as never recovered
-// would understate every cohort it appears in.
-//
-// So is one with nothing scored — only manual, reusable, or post-window
-// workflows. It has no first success to be dated by, so it can never join the
-// curve, and leaving it in pins the population at zero and buries the
-// repositories that did come back.
-function eligible(row) {
-  if (row.state !== "SUCCEEDED" || row.removed || row.greenUndated) return false;
+// A migrated repository with something scored: the set the curve is drawn from,
+// before dates are taken into account.
+function datable(row) {
+  if (row.state !== "SUCCEEDED" || row.removed) return false;
   if (!(row.migratedAt ?? row.createdAt)) return false;
   const counts = row.workflows;
   return (counts?.succeeded ?? 0) + (counts?.failing ?? 0) + (counts?.idle ?? 0) > 0;
+}
+
+// Only repositories that actually migrated and have a window to be measured
+// against, and that the curve can place: a repository green from before dating
+// began has no day to sit on, and one with nothing scored — only manual,
+// reusable, or post-window workflows — never will have.
+function eligible(row) {
+  return datable(row) && !row.greenUndated;
 }
 
 // Arrivals against recoveries, in calendar time: repositories migrating per

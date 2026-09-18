@@ -72,13 +72,13 @@ async function fetchWorkflowInventory(octokit, org, repo, budget, known = {}) {
     const before = known[workflow.path];
 
     if (before?.classifiedAt) {
-      // A workflow classified before this version has a status but no date. It
-      // is dated on the next re-list rather than left undatable forever, which
-      // costs the two calls once and nothing after.
-      const dated =
-        before.status === "succeeded" && !before.firstSuccessAt
-          ? await dateFirstSuccess(octokit, org, repo, workflow.id, budget)
-          : (before.firstSuccessAt ?? null);
+      // A workflow classified before this version has a status but no date.
+      // `datedAt` records that the attempt was made, so a success that has aged
+      // out of Actions run retention is not probed again on every re-list.
+      const needsDate = before.status === "succeeded" && !before.firstSuccessAt && !before.datedAt;
+      const dated = needsDate
+        ? await dateFirstSuccess(octokit, org, repo, workflow.id, budget)
+        : (before.firstSuccessAt ?? null);
       if (budget.exhausted.has("rest")) return null;
 
       rows.push({
@@ -88,6 +88,7 @@ async function fetchWorkflowInventory(octokit, org, repo, budget, known = {}) {
         state: workflow.state,
         status: before.status,
         firstSuccessAt: dated,
+        datedAt: needsDate ? new Date().toISOString() : (before.datedAt ?? null),
         reusable: before.reusable ?? false,
         manual: before.manual ?? false,
         classifiedAt: before.classifiedAt,
@@ -155,6 +156,33 @@ async function classifyWorkflow(octokit, org, repo, workflowId, budget) {
   }
   if (res.data.total_count > runs.length) return { status: "failing", firstSuccessAt: null };
   return { status: "idle", firstSuccessAt: null };
+}
+
+// Dates workflows that were classified before first successes were recorded,
+// working from the stored record rather than a fresh listing — so a repository
+// costs nothing unless it actually has a success to date. This is what reaches
+// settled repositories: the re-list never does, because it stops at the window.
+//
+// Returns a patch keyed the same way the record is. `datedAt` marks the attempt
+// whether or not it found anything, so a success aged out of run retention is
+// probed once and then left alone.
+async function dateKnownWorkflows(octokit, org, repo, workflows, budget) {
+  const patch = {};
+  for (const [key, workflow] of Object.entries(workflows ?? {})) {
+    if (!needsDating(workflow)) continue;
+    const at = workflow.workflowId
+      ? await dateFirstSuccess(octokit, org, repo, workflow.workflowId, budget)
+      : null;
+    if (budget.exhausted.has("rest")) break;
+    patch[key] = { datedAt: new Date().toISOString(), firstSuccessAt: at };
+  }
+  return patch;
+}
+
+// A scored workflow that succeeded, has no date, and has not been asked yet.
+function needsDating(workflow) {
+  if (!workflow || workflow.reusable) return false;
+  return workflow.status === "succeeded" && !workflow.firstSuccessAt && !workflow.datedAt;
 }
 
 // Dates a workflow already known to have succeeded, for records written before
@@ -267,4 +295,4 @@ function parseInline(rest) {
     .filter(Boolean);
 }
 
-export { fetchWorkflowInventory, onlyWorkflowCall, triggerClass };
+export { fetchWorkflowInventory, dateKnownWorkflows, needsDating, onlyWorkflowCall, triggerClass };

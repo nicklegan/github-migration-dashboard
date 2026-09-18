@@ -402,6 +402,107 @@ test("a store that predates location tracking is swept once, then settles", () =
   assert.equal(isAttributeSweepDue(state, { ...config, refreshAttributes: true }), true);
 });
 
+// The re-list stops at the window, so a settled repository is never revisited —
+// and on an estate migrated before dating existed, almost everything is settled.
+// The dating pass has to reach them or their successes stay undated for good.
+test("earlier successes are dated even in a repository the re-list never revisits", async () => {
+  const store = tempStore();
+  // Migrated long enough ago that its window closed and re-listing has stopped:
+  // the last inventory happened after the window closed, which is the rule.
+  store.putMigration(migration({ createdAt: "2026-01-01T00:00:00Z" }));
+  store.putRepo("org-a/api", {
+    org: "org-a",
+    repository: "api",
+    workflowsBootstrappedAt: "2026-04-01T00:00:00Z",
+    attributesFetchedAt: new Date().toISOString(),
+    workflows: {
+      "ci.yml": { name: "CI", path: "ci.yml", workflowId: 7, status: "succeeded", classifiedAt: "2026-01-02T00:00:00Z" },
+      "release.yml": { name: "Release", path: "release.yml", workflowId: 8, status: "failing", classifiedAt: "2026-01-02T00:00:00Z" },
+    },
+  });
+
+  let listed = 0;
+  const octokit = {
+    ...quietOctokit,
+    graphql: async (query) => {
+      if (query.includes("repositoryMigrations")) {
+        return { organization: { repositoryMigrations: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+      }
+      return {};
+    },
+    rest: {
+      ...quietOctokit.rest,
+      actions: {
+        listRepoWorkflows: async () => {
+          listed += 1;
+          return { data: { workflows: [] } };
+        },
+        listWorkflowRuns: async ({ page }) => ({
+          data: {
+            total_count: 4,
+            workflow_runs: [{ updated_at: page ? "2026-01-09T00:00:00Z" : "2026-05-01T00:00:00Z" }],
+          },
+        }),
+      },
+    },
+  };
+
+  const state = { ...freshState(), teamProperty: "team" };
+  await sync({ store, state, octokit });
+
+  const record = store.getRepo("org-a/api");
+  assert.equal(listed, 0, "the repository is past its window, so it is never re-listed");
+  assert.equal(record.workflows["ci.yml"].firstSuccessAt, "2026-01-09T00:00:00Z", "oldest success");
+  assert.ok(record.workflows["ci.yml"].datedAt);
+  assert.equal(record.workflows["release.yml"].firstSuccessAt, undefined, "nothing succeeded to date");
+});
+
+// A success that has aged out of Actions run retention can never be dated. The
+// attempt is recorded so it is not re-probed on every run for the rest of time.
+test("a success that cannot be dated is asked once, then left alone", async () => {
+  const store = tempStore();
+  store.putMigration(migration({ createdAt: "2026-01-01T00:00:00Z" }));
+  store.putRepo("org-a/api", {
+    org: "org-a",
+    repository: "api",
+    workflowsBootstrappedAt: "2026-04-01T00:00:00Z",
+    attributesFetchedAt: new Date().toISOString(),
+    workflows: {
+      "ci.yml": { name: "CI", path: "ci.yml", workflowId: 7, status: "succeeded", classifiedAt: "2026-01-02T00:00:00Z" },
+    },
+  });
+
+  let probes = 0;
+  const octokit = {
+    ...quietOctokit,
+    graphql: async (query) => {
+      if (query.includes("repositoryMigrations")) {
+        return { organization: { repositoryMigrations: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
+      }
+      return {};
+    },
+    rest: {
+      ...quietOctokit.rest,
+      actions: {
+        listRepoWorkflows: async () => ({ data: { workflows: [] } }),
+        // The runs have aged out, so there is nothing left to date it from.
+        listWorkflowRuns: async () => {
+          probes += 1;
+          return { data: { total_count: 0, workflow_runs: [] } };
+        },
+      },
+    },
+  };
+
+  await sync({ store, state: { ...freshState(), teamProperty: "team" }, octokit });
+  const after = probes;
+  assert.ok(after > 0, "it was asked");
+  assert.equal(store.getRepo("org-a/api").workflows["ci.yml"].firstSuccessAt, null);
+
+  await sync({ store, state: { ...freshState(), teamProperty: "team" }, octokit });
+  assert.equal(probes, after, "and not asked again");
+});
+
 // Asking under the old name works only while GitHub keeps the redirect, which
 // ends the moment somebody creates a repository with that name.
 test("attributes are read where the repository lives now", async () => {

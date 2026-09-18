@@ -1,7 +1,7 @@
 import * as core from "@actions/core";
 import { fetchNewMigrations, refreshMigrations } from "./migrations.js";
 import { fetchRepoDetails } from "./repos.js";
-import { fetchWorkflowInventory } from "./workflows.js";
+import { fetchWorkflowInventory, dateKnownWorkflows, needsDating } from "./workflows.js";
 import { fetchMigrationLogDuration } from "./migrationLog.js";
 import {
   emptyRepo,
@@ -11,6 +11,7 @@ import {
   applyRepoAttributes,
   applyRepoDeleted,
   applyWorkflowInventory,
+  applyWorkflowDates,
   applyWorkflowRun,
   dedupeWorkflows,
   isAttributeRefreshDue,
@@ -27,6 +28,12 @@ const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 // an upgrade re-reads every repository once to back-fill it, then records the
 // marker so the sweep settles instead of repeating.
 const ATTRIBUTE_SCHEMA = 1;
+
+// Bumped when workflows start carrying something their earlier classification
+// could not. Until the marker is recorded, every run keeps dating the successes
+// that predate it — including in repositories the re-list never revisits, which
+// is the only way those ever get a date.
+const DATING_SCHEMA = 1;
 
 // A changed team-property makes every stored team wrong at once, so the TTL is
 // bypassed for one sweep rather than left to expire over a week.
@@ -227,6 +234,36 @@ async function syncOrganization({
   if (due.length > 0) {
     core.info(`Inventoried workflows for ${inventoried} of ${due.length} due repository(ies)`);
   }
+
+  // 5 — date successes that were classified before the action recorded dates.
+  // Unlike the re-list this ignores the window, because a settled repository is
+  // never re-listed and would otherwise stay undated for good — and an estate
+  // migrated before this feature existed is almost entirely settled.
+  //
+  // It runs until the marker is recorded, so a sweep the budget cuts short
+  // simply continues next run.
+  if (state.datingSchema !== DATING_SCHEMA) {
+    let repos = 0;
+    let workflows = 0;
+    for (const repository of migratedRepos) {
+      const key = `${org}/${repository}`;
+      const record = store.getRepo(key);
+      if (!record || record.deletedAt) continue;
+      if (!Object.values(record.workflows ?? {}).some(needsDating)) continue;
+
+      const { owner, name } = repoLocation(record, org, repository);
+      const patch = await dateKnownWorkflows(octokit, owner, name, record.workflows, budget);
+      if (Object.keys(patch).length > 0) {
+        store.putRepo(key, applyWorkflowDates(record, patch));
+        repos += 1;
+        workflows += Object.keys(patch).length;
+      }
+      if (budget.exhausted.has("rest")) break;
+    }
+    if (repos > 0) {
+      core.info(`Dated ${workflows} earlier success(es) across ${repos} repository(ies)`);
+    }
+  }
 }
 
 // Dates undated successes from their migration logs. Live migrations have no
@@ -401,4 +438,5 @@ export {
   migratedOrgs,
   isAttributeSweepDue,
   ATTRIBUTE_SCHEMA,
+  DATING_SCHEMA,
 };
