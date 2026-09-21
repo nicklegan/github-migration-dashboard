@@ -163,6 +163,42 @@ test("a repository with nothing scored is not on the curve at all", () => {
   assert.equal(points.find((p) => p.day >= 10).allGreen, 1, "not 25%");
 });
 
+// Whatever is not green or part-way is a repository with workflows and no
+// success to show for them. The three bands are a partition, so they have to
+// come to one: a gap would be a repository counted nowhere.
+test("the three bands account for every repository at every day", () => {
+  const rows = [
+    repo(60, { daysToGreen: 5, daysToFirstGreen: 2 }),
+    repo(60, { daysToFirstGreen: 3 }),
+    repo(60, { workflows: { succeeded: 0, failing: 2, idle: 0 } }),
+    repo(60, { daysToGreen: 40, daysToFirstGreen: 12 }),
+  ];
+
+  const { points } = recoveryCurve(rows, { windowDays: 60, nowMs: NOW, points: 60 });
+
+  for (const p of points) {
+    const total = p.allGreen + p.partlyGreen + p.notRunning;
+    assert.ok(Math.abs(total - 1) < 1e-9, `day ${p.day} came to ${total}`);
+    assert.ok(p.partlyGreen >= 0 && p.notRunning >= 0, `day ${p.day} went negative`);
+  }
+
+  const at = points.find((p) => p.day >= 45);
+  assert.equal(at.allGreen, 0.5);
+  assert.equal(at.notRunning, 0.25, "only the one whose workflows never passed");
+});
+
+// A repository recorded as fully green without a first-success date would make
+// the part-way band negative, and the stack would draw below the axis.
+test("a green repository counts as started even with no first-success date", () => {
+  const rows = [repo(60, { daysToGreen: 5 }), repo(60, { daysToGreen: 8 })];
+
+  const { points } = recoveryCurve(rows, { windowDays: 60, nowMs: NOW, points: 60 });
+  const at = points.find((p) => p.day >= 10);
+
+  assert.equal(at.partlyGreen, 0);
+  assert.equal(at.notRunning, 0);
+});
+
 // The cards above the curve count what is green now; the curve counts what was
 // green in time. These are the repositories in between, and naming them is what
 // stops the two numbers from looking like a contradiction.

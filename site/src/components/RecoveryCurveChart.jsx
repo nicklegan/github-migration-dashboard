@@ -19,12 +19,12 @@ const percent = (value) => `${Math.round(value * 100)}%`;
 // again. The x-axis is days since *that repository's* migration, so cohorts
 // migrated months apart lie on top of each other and can be compared.
 //
-// The bands stack, so the top edge is "anything running at all" and the space
-// left above it is repositories where nothing has run yet. Drawn unstacked that
-// third group is invisible — it only shows up if you subtract both lines from
-// 100 — and it is the one worth chasing.
+// The bands stack to the whole population, so nothing has to be inferred from
+// empty space: what is running, what is half running, and what has not started.
+// Repositories with no workflow to run are left out entirely — they have no
+// recovery to chart, and as a band they only ever pushed the rest down.
 export default function RecoveryCurveChart({ title, subtitle, rows, windowDays, nowMs }) {
-  const { tooltipProps, legendProps, AXIS_TICK, AXIS_LINE, GRID, CURSOR, SUCCESS, ATTENTION } =
+  const { tooltipProps, legendProps, AXIS_TICK, AXIS_LINE, GRID, CURSOR, SUCCESS, ATTENTION, DANGER } =
     useChartTheme();
 
   const { points, population, undated } = useMemo(
@@ -83,7 +83,16 @@ export default function RecoveryCurveChart({ title, subtitle, rows, windowDays, 
               formatter={(value, name) => [percent(value), name]}
               labelFormatter={(day) => `${Math.round(day)} days after migrating`}
             />
-            <Legend verticalAlign="top" height={28} iconType="circle" iconSize={8} {...legendProps} />
+            {/* recharts sorts legend labels alphabetically by default, which
+                scrambles a stack whose order is the point. */}
+            <Legend
+              verticalAlign="top"
+              height={28}
+              iconType="circle"
+              iconSize={8}
+              itemSorter={null}
+              {...legendProps}
+            />
             {showWindow && (
               <ReferenceLine
                 x={windowDays}
@@ -121,20 +130,30 @@ export default function RecoveryCurveChart({ title, subtitle, rows, windowDays, 
               dot={false}
               isAnimationActive={false}
             />
+            <Area
+              type="monotone"
+              dataKey="notRunning"
+              name="Nothing running"
+              stackId="onboarding"
+              stroke={DANGER}
+              fill={DANGER}
+              fillOpacity={0.14}
+              strokeWidth={2}
+              dot={false}
+              isAnimationActive={false}
+            />
           </AreaChart>
         </ResponsiveContainer>
       )}
       {!tooFewDated && (
         <p className="chart-footnote">
-          {population.toLocaleString()} migrated repositories. Each day counts only the repositories
-          that have had that long since migrating, so the curve is not dragged down by this week's
-          arrivals. The space above the bands is repositories where nothing has run yet.
+          {population.toLocaleString()} repositories with workflows to run. Each day counts only
+          those migrated that long ago, so recent arrivals do not drag it down.
           {late > 0 && (
             <>
               {" "}
-              A further {late.toLocaleString()} came back only after their window closed. The cards
-              above count them as onboarded, because they measure where repositories stand today;
-              this curve does not, because it measures what happened inside the window.
+              A further {late.toLocaleString()} came back after their window closed — onboarded on
+              the cards above, but not on this curve.
             </>
           )}
         </p>

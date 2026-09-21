@@ -43,8 +43,11 @@ function recoveryCurve(rows, { windowDays, nowMs = Date.now(), points = 40 } = {
       if (elapsed[i] < day) continue;
       atRisk += 1;
       const row = population[i];
-      if (row.daysToGreen != null && row.daysToGreen <= day) green += 1;
-      if (row.daysToFirstGreen != null && row.daysToFirstGreen <= day) stirring += 1;
+      const isGreen = row.daysToGreen != null && row.daysToGreen <= day;
+      // Fully green counts as stirring whatever its first-success date says, so
+      // a missing one cannot push a band negative and break the partition.
+      if (isGreen) green += 1;
+      if (isGreen || (row.daysToFirstGreen != null && row.daysToFirstGreen <= day)) stirring += 1;
     }
     // A day no repository has reached yet says nothing, and nor does one only a
     // handful have. A small cohort still gets drawn, just not past its own size.
@@ -58,6 +61,9 @@ function recoveryCurve(rows, { windowDays, nowMs = Date.now(), points = 40 } = {
       // plateau is a population that got stuck half-migrated.
       partlyGreen: (stirring - green) / atRisk,
       allGreen: green / atRisk,
+      // Nothing has passed at all. Drawn rather than left as empty space: it is
+      // the band with work behind it, and it is the one people act on.
+      notRunning: (atRisk - stirring) / atRisk,
     });
   }
 
@@ -76,7 +82,8 @@ function datable(row) {
 // Only repositories that actually migrated and have a window to be measured
 // against, and that the curve can place: a repository green from before dating
 // began has no day to sit on, and one with nothing scored — only manual,
-// reusable, or post-window workflows — never will have.
+// reusable, or post-window workflows — never will have. The latter has no
+// recovery to chart either way: there is nothing in it to run.
 function eligible(row) {
   return datable(row) && !row.greenUndated;
 }

@@ -12,32 +12,26 @@ and reports both of GitHub's migration paths to GitHub Enterprise Cloud:
 - **Enterprise Live Migrations (ELM)** — from GitHub Enterprise Server to
   GitHub Enterprise Cloud with data residency
 
-Migrations from both tools appear in the same tables, so every repository is
-counted and dated the same way regardless of how it was moved. The action runs on
-the destination; GitHub Enterprise Server is supported as a source only.
+Both land in the same tables, counted and dated the same way. The action runs on
+the destination; GitHub Enterprise Server is a source only.
 
-Moving a repository is only part of a migration. Workflow files are migrated, but
-secrets, variables, environments, and runners are not. To show whether a migrated
-repository is actually working, the dashboard also inventories its Actions
-workflows and reports whether they have run successfully since the move.
+Workflow files migrate; secrets, variables, environments, and runners do not. So
+the dashboard also inventories each repository's Actions workflows and reports
+whether they have run successfully since the move.
 
-| Tab                       | What it shows                                                                                    |
-| :------------------------ | :----------------------------------------------------------------------------------------------- |
-| **Onboarding**            | How long migrated repositories take to get running again, against their window                 |
-| **Overview**              | KPI cards, breakdowns by organization, team, or source platform, and distributions             |
-| **Repository migrations** | One row per target repository; expand to see every attempt                                       |
-| **Workflow migrations**   | One row per repository; expand to see each Actions workflow and its status                       |
+| Tab                   | What it shows                                                                      |
+| :-------------------- | :--------------------------------------------------------------------------------- |
+| **Overview**          | KPI cards, breakdowns by organization, team, or source platform, and distributions |
+| **Onboarding**        | How long migrated repositories take to get running again, against their window     |
+| **Repositories**      | One row per target repository; expand to see every attempt                         |
+| **Actions workflows** | One row per repository; expand to see each workflow and its status                 |
 
-**Onboarding** leads, because moving a repository is the easy half; it is the
-default tab whenever a window is configured. The overview then reads in two
-sections — **What moved** and **What still runs**.
+Every chart is a filter: click a bar segment, a donut slice, or a legend entry to
+select it, click again to clear. Selections accumulate and every other chart, the
+KPI cards, and the tables follow. Bar charts show the ten largest categories and
+roll the rest into **Other**.
 
-Every chart is a filter. Click a bar segment, a donut slice, a legend entry, or
-the name beside a bar to select it; click again to deselect. Selections
-accumulate, and every other chart, the KPI cards, and the tables follow. Bar
-charts show the ten largest categories and roll the rest into **Other**.
-
-![A walkthrough of the dashboard: the onboarding tab's recovery curve and time-to-onboard bars, the overview's breakdowns with a chart filtering everything else, a repository's migration attempts unfolding, and a repository's Actions workflows with their status](docs/dashboard.gif)
+![A walkthrough of the dashboard: the overview's breakdowns with a chart filtering everything else, the onboarding tab's time-to-onboard bars and recovery curve, a repository's migration attempts unfolding, and a repository's Actions workflows with their status](docs/dashboard.gif)
 
 ## Usage
 
@@ -109,29 +103,36 @@ publishes the site.
 
 ## Action inputs
 
-| Name                         | Description                                                                                                                                                                             | Default                                  | Location       | Required |
-| :--------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------- | :------------- | :------- |
-| `token`                      | Classic PAT that reads migrations, the audit log, and Actions runs. The default `GITHUB_TOKEN` cannot read these.                                                                        |                                          | [workflow.yml] | `true`   |
-| `team-property`              | Organization custom property that holds the owning team. Its name is what the dashboard prints as a heading (`business_unit` → `Business unit`).                                          | `team`                                   | [workflow.yml] | `false`  |
-| `onboarding-window-days`     | How long after a successful migration a newly added workflow still counts as part of that migration. `0` disables the window, and with it the Onboarding tab.                            | `60`                                     | [workflow.yml] | `false`  |
-| `live-migrations`            | Also report Enterprise Live Migrations (GHES → data residency). GHE.com only; needs the `admin:enterprise` scope. Skipped automatically when unavailable.                              | `true`                                   | [action.yml]   | `false`  |
-| `enterprise`                 | Enterprise slug to report on, as in `github.com/enterprises/<slug>`. Autosensed from the tenant host, or from the token. Only needed to disambiguate.                                    | (autosensed)                             | [action.yml]   | `false`  |
-| `data-dir`                   | Directory holding the JSON data store the dashboard reads and the action commits.                                                                                                       | `data`                                   | [action.yml]   | `false`  |
-| `api-url`                    | REST API base URL. Autosensed from the runner. Override only when the target organizations live on a different instance than the runner.                                                 | (autosensed)                             | [action.yml]   | `false`  |
-| `inventory-ttl-days`         | How often to re-list a repository's workflows, so workflows added after migration are found even if they never run. `0` inventories each repository only once.                           | `7`                                      | [action.yml]   | `false`  |
-| `attribute-ttl-days`         | How often to refresh a repository's team property and size while it is onboarding.                                                                                                       | `1`                                      | [action.yml]   | `false`  |
-| `settled-attribute-ttl-days` | How often to refresh team and size once a repository is past its onboarding window, so a change of owning team is picked up. `0` freezes them at window close.                           | `7`                                      | [action.yml]   | `false`  |
-| `refresh-attributes`         | Re-read team, size, and current location for every migrated repository this run, ignoring the TTLs. For a `workflow_dispatch` after reorganizing repositories. Costs one request per 100. | `false`                                  | [action.yml]   | `false`  |
-| `row-chunk-size`             | Repositories per dashboard row chunk, within a migration month. Smaller chunks stream in sooner on very large estates.                                                                   | `2000`                                   | [action.yml]   | `false`  |
-| `detail-buckets`             | How many files the per-repository detail is spread across. Expanding a row downloads one whole bucket, so raise this on a large estate. Safe to change at any time.                      | `256`                                    | [action.yml]   | `false`  |
-| `rest-budget`                | Maximum REST calls per run. `0` means unlimited.                                                                                                                                        | `4000`                                   | [action.yml]   | `false`  |
-| `graphql-budget`             | Maximum GraphQL requests per run. `0` means unlimited.                                                                                                                                  | `4000`                                   | [action.yml]   | `false`  |
-| `audit-budget`               | Maximum audit-log requests per run. `0` means unlimited.                                                                                                                                | `1500`                                   | [action.yml]   | `false`  |
-| `output-path`                | Directory the action writes the ready-to-deploy dashboard into.                                                                                                                         | `_site`                                  | [action.yml]   | `false`  |
-| `commit-data`                | Commit and push the refreshed data store when it changes. Needs an `actions/checkout` step and `contents: write`.                                                                        | `true`                                   | [action.yml]   | `false`  |
-| `commit-message`             | Commit message used when the data store is committed.                                                                                                                                   | `chore: update migration data [skip ci]` | [action.yml]   | `false`  |
-| `committer-name`             | Author and committer name for data store commits.                                                                                                                                       | `github-actions[bot]`                    | [action.yml]   | `false`  |
-| `committer-email`            | Author and committer email for data store commits. Empty derives the Actions bot address on the runner's host, e.g. `github-actions[bot]@users.noreply.github.com`.                     | _derived_                                | [action.yml]   | `false`  |
+| Name                     | Description                                                                                                            | Default | Location       | Required |
+| :----------------------- | :--------------------------------------------------------------------------------------------------------------------- | :------ | :------------- | :------- |
+| `token`                  | Classic PAT that reads migrations, the audit log, and Actions runs.                                                    |         | [workflow.yml] | `true`   |
+| `team-property`          | Organization custom property holding the owning team. Its name becomes the dashboard's heading.                        | `team`  | [workflow.yml] | `false`  |
+| `onboarding-window-days` | How long after a migration a newly added workflow still counts as part of it. `0` disables it, and the Onboarding tab. | `60`    | [workflow.yml] | `false`  |
+| `live-migrations`        | Also report Enterprise Live Migrations (GHES → data residency). GHE.com only; skipped when unavailable.                 | `true`  | [action.yml]   | `false`  |
+| `refresh-attributes`     | Re-read team, size, and location for every repository this run, ignoring the TTLs. Costs one request per 100.           | `false` | [action.yml]   | `false`  |
+
+### Tuning
+
+Defaults suit most estates. See [action.yml](action.yml) for the full text.
+
+| Name                         | Description                                                                              | Default                                  |
+| :--------------------------- | :---------------------------------------------------------------------------------------- | :--------------------------------------- |
+| `enterprise`                 | Enterprise slug to report on. Autosensed; set only to disambiguate.                      | (autosensed)                             |
+| `api-url`                    | REST API base URL. Override only when the organizations live on another instance.        | (autosensed)                             |
+| `data-dir`                   | Directory holding the JSON data store.                                                   | `data`                                   |
+| `inventory-ttl-days`         | How often to re-list a repository's workflows. `0` inventories it once.                  | `7`                                      |
+| `attribute-ttl-days`         | How often to refresh team and size while a repository is onboarding.                     | `1`                                      |
+| `settled-attribute-ttl-days` | How often to refresh them once its window has closed. `0` freezes them.                  | `7`                                      |
+| `row-chunk-size`             | Repositories per dashboard row chunk. Smaller chunks stream in sooner.                   | `2000`                                   |
+| `detail-buckets`             | Files the per-repository detail is spread across. Raise on a large estate.               | `256`                                    |
+| `rest-budget`                | Maximum REST calls per run. `0` is unlimited.                                            | `4000`                                   |
+| `graphql-budget`             | Maximum GraphQL requests per run. `0` is unlimited.                                      | `4000`                                   |
+| `audit-budget`               | Maximum audit-log requests per run. `0` is unlimited.                                    | `1500`                                   |
+| `output-path`                | Directory the assembled dashboard is written to.                                         | `_site`                                  |
+| `commit-data`                | Commit the refreshed data store when it changes. Needs `contents: write`.                | `true`                                   |
+| `commit-message`             | Commit message for data store commits.                                                   | `chore: update migration data [skip ci]` |
+| `committer-name`             | Author and committer name for those commits.                                             | `github-actions[bot]`                    |
+| `committer-email`            | Author and committer email. Empty derives the Actions bot address on the runner's host.  | _derived_                                |
 
 [workflow.yml]: #usage 'Usage'
 [action.yml]: action.yml 'action.yml'
@@ -187,26 +188,24 @@ daily.
 
 ## Owning team
 
-Every breakdown by team comes from a
-[custom property](https://docs.github.com/organizations/managing-organization-settings/managing-custom-properties-for-repositories-in-your-organization)
-— defined once on the organization, set per repository. `team-property` names it
-(default `team`), and that name is what the dashboard prints, so an organization
-that says business unit, group, or tribe gets its own word in the headings and
-the CSV: a property called `business_unit` reads as `Business unit`.
+Team breakdowns come from an organization
+[custom property](https://docs.github.com/organizations/managing-organization-settings/managing-custom-properties-for-repositories-in-your-organization),
+defined once and set per repository. `team-property` names it, and that name is
+what the dashboard prints, so an organization that says business unit, group, or
+tribe gets its own word: `business_unit` reads as `Business unit`.
 
 A repository with the property unset counts as `Unassigned` rather than being
-dropped, so the team breakdown always totals the whole estate. Changing
+dropped, so the breakdown always totals the whole estate. Changing
 `team-property` re-reads every repository on the next run. The name is matched
-regardless of case, and a multi-select property is shown as its values joined
-with commas.
+regardless of case, and a multi-select property joins its values with commas.
 
 ## Onboarding window
 
 Actions workflows rarely arrive with the repository — some land the same day,
-some weeks later. `onboarding-window-days` (default `60`) decides how long that
-still counts as part of the migration. A workflow first seen inside the window is
-migration scope; one first seen after it is badged `Added later` and does not
-move migration metrics.
+some weeks later. `onboarding-window-days` decides how long that still counts as
+part of the migration. A workflow first seen inside the window is migration
+scope; one first seen after it is badged `Added later` and does not move
+migration metrics.
 
 Closing the window does not declare success. A repository whose window closed
 with a workflow still failing or never run is badged **not onboarded**
@@ -216,16 +215,17 @@ with a workflow still failing or never run is badged **not onboarded**
 
 A repository is **back online** when every workflow it is scored on has passed at
 least once — the rule that badges it onboarded, now dated, so the **Onboarding**
-tab can chart how long it took. One with nothing scored, or whose success predates
-these dates being recorded, sits out of the charts rather than counting as never
-recovered. The curve stacks fully green on part-way there, leaving the space
-above the bands as the repositories where nothing has run at all.
+tab can chart how long it took. The curve stacks onboarded, part-way there, and
+nothing running, so the three bands come to the whole population. A repository
+with nothing scored has no recovery to chart and is left out; so is one whose
+success predates these dates being recorded.
 
 An estate migrated before this existed is dated by a one-time back-fill: two
-requests per already-succeeded workflow, spread across runs and resumable, and it
-reaches settled repositories that the workflow re-list no longer visits. Until
+requests per already-succeeded workflow, spread across runs and resumable. Until
 most of the estate is dated the curve withholds itself and reports its progress,
 because leaving the undated out drops successes without dropping failures.
+
+## What counts as migrated
 
 A repository counts as migrated when **any** attempt succeeded. A retry into a
 *different* repository name marks the original `SUPERSEDED`, so it stops
@@ -239,8 +239,8 @@ that absence *is* the failure.
 Each migration is timed from its own migration log, read the first time the
 dashboard sees it succeed. That log expires five days after the migration, so
 anything older falls back to the audit log's record of the importer enabling
-Actions — its final step. A migration that never enabled Actions and whose log
-has gone stays undated rather than being timed from an earlier step.
+Actions — its final step, and bounded by the audit log's retention. A migration
+that never enabled Actions and whose log has gone stays undated.
 
 ## Renamed and transferred repositories
 
@@ -281,26 +281,19 @@ cursor. Steady state is one request per organization plus a handful more.
 
 The first run is the expensive one — one request per repository plus up to three
 per workflow — and a classic token allows 5,000 REST requests an hour, so a large
-estate takes several runs. Budgets are backstops: hitting one stops that phase,
-commits its progress, sets the `truncated` output, and resumes next run. The
-audit log's retention bounds history, so migrations older than it arrive without
-a duration.
+estate takes several runs. Hitting a budget stops that phase, commits its
+progress, sets the `truncated` output, and resumes next run.
 
-- :bulb: Raise `inventory-ttl-days`, `attribute-ttl-days`, and
-  `settled-attribute-ttl-days` to trade freshness for headroom. Avoid
+- :bulb: Raise the TTLs to trade freshness for headroom. Avoid
   `onboarding-window-days: 0` on a large estate: re-listing never retires a
   repository, so cost follows the estate rather than the migration rate.
 
 ## Where it runs
 
 The action rides the runner-provided `GITHUB_API_URL` / `GITHUB_GRAPHQL_URL`, so
-it works on github.com and ghe.com without per-platform branching. The
-enterprise is autosensed from the `*.ghe.com` tenant host, or otherwise from the
-token; if the token owns several, the one owning the workflow's organization
-wins.
-
-- :bulb: Set `enterprise` when autosensing is still ambiguous, and `api-url` only
-  when the target organizations live on a different instance than the runner.
+github.com and ghe.com both work without per-platform branching. The enterprise
+is autosensed from the tenant host, or from the token; set `enterprise` only
+when that is ambiguous.
 
 ## Development
 

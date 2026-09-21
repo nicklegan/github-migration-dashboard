@@ -254,8 +254,8 @@ export default function App() {
     : summaryStates(summary, stateColors, GRAY);
   const hasFilters = Object.keys(filters).length > 0;
   const windowDays = summary.onboardingWindowDays ?? 0;
-  // Onboarding leads only when there is something in it: no window configured,
-  // or nothing measured against one yet, and it is not a tab at all.
+  // Onboarding is a tab at all only when there is something in it: no window
+  // configured, or nothing measured against one yet, and it is left out.
   const onboardingTotals = summary.onboarding ?? {};
   const hasOnboarding =
     windowDays > 0 &&
@@ -263,7 +263,7 @@ export default function App() {
       (onboardingTotals.complete ?? 0) +
       (onboardingTotals.incomplete ?? 0) >
       0;
-  const activeTab = tab ?? (hasOnboarding ? "onboarding" : "overview");
+  const activeTab = tab ?? "overview";
   const clearFilters = () => setFilters({});
   const selected = (dimension) => selectedValues(filters, dimension);
   // The same measure broken down three ways, for the charts' dimension toggle.
@@ -282,10 +282,10 @@ export default function App() {
       <main className="app">
       <TabBar
         tabs={[
+          { key: "overview", label: "Overview", icon: <Icon name="mark-github" /> },
           ...(hasOnboarding
             ? [{ key: "onboarding", label: "Onboarding", icon: <Icon name="pulse" /> }]
             : []),
-          { key: "overview", label: "Overview", icon: <Icon name="mark-github" /> },
           {
             key: "repositories",
             label: "Repositories",
@@ -517,24 +517,6 @@ export default function App() {
           {views ? (
             <>
               <OnboardingCards scope={views.scope} windowDays={windowDays} />
-              <section className="charts charts-full">
-                <RecoveryCurveChart
-                  title="Getting back online"
-                  subtitle="How far into its window a repository is running again"
-                  rows={views.onboardingRows}
-                  windowDays={windowDays}
-                  nowMs={nowMs}
-                />
-              </section>
-              <section className="charts charts-full">
-                <RecoveryPulseChart
-                  title="Arrivals and recoveries"
-                  subtitle="Repositories migrating against repositories coming back online"
-                  rows={views.onboardingRows}
-                  range="all"
-                  nowMs={nowMs}
-                />
-              </section>
               <section className="charts">
                 <CategoryBarChart
                   title="Onboarding status"
@@ -554,7 +536,7 @@ export default function App() {
                 />
                 <CategoryBarChart
                   title="Time to onboard"
-                  subtitle="Median days from migrating to every workflow green, slowest first"
+                  subtitle="Median days from migrating to every workflow green"
                   groups={breakdownGroups({
                     org: views.timeToOnboardOrgs,
                     team: views.timeToOnboardTeams,
@@ -563,6 +545,24 @@ export default function App() {
                   activeValuesFor={selected}
                   onSelect={select}
                   series={[{ key: "days", name: "Median days", color: categorical[0] }]}
+                />
+              </section>
+              <section className="charts charts-full">
+                <RecoveryCurveChart
+                  title="Getting back online"
+                  subtitle="How far into its window a repository is running again"
+                  rows={views.onboardingRows}
+                  windowDays={windowDays}
+                  nowMs={nowMs}
+                />
+              </section>
+              <section className="charts charts-full">
+                <RecoveryPulseChart
+                  title="Arrivals and recoveries"
+                  subtitle="Repositories migrating against repositories coming back online"
+                  rows={views.onboardingRows}
+                  range="all"
+                  nowMs={nowMs}
                 />
               </section>
             </>

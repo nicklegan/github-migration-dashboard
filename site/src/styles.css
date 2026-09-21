@@ -529,6 +529,9 @@ td .label, td .counter-sm { margin-left: 8px; vertical-align: middle; }
 .chart-subtitle { margin: 0 0 8px; font-size: 12px; color: var(--fg-muted); }
 .chart-footnote { margin: 4px 0 0; font-size: 11px; color: var(--fg-muted); }
 .chart-head { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
+/* Let a long subtitle wrap inside its own column instead of pushing the
+   dimension toggle onto a second row. */
+.chart-head > :first-child { flex: 1 1 0; min-width: 0; }
 .chart-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .chart-empty { padding: 48px 0; font-size: 13px; color: var(--fg-muted); text-align: center; }
 
