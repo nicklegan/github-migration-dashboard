@@ -15,11 +15,13 @@ export function useSort(rows, columns, initial = null) {
     return [...rows].sort((x, y) => compareWithBlanksLast(accessor(x), accessor(y), dir));
   }, [rows, sort, columns]);
 
+  // A plain two-state toggle. There is no unsorted state to cycle back to:
+  // both tables open on a default sort, so "unsorted" would just be a dead
+  // click on whichever column already holds it.
   const toggle = (key) =>
     setSort((current) => {
       if (current?.key !== key) return { key, dir: "asc" };
-      if (current.dir === "asc") return { key, dir: "desc" };
-      return null;
+      return { key, dir: current.dir === "asc" ? "desc" : "asc" };
     });
 
   return { sorted, sort, toggle };

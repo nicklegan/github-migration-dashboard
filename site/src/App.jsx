@@ -448,14 +448,7 @@ export default function App() {
         <RowsLoading progress={progress} />
       )}
 
-      <h2 className="section-title">
-        What still runs
-        {windowDays > 0 && (
-          <span className="section-note">
-            The {windowDays}-day window decides which workflows count
-          </span>
-        )}
-      </h2>
+      <h2 className="section-title">What still runs</h2>
       <WorkflowCards workflows={workflowTotalsView} windowDays={windowDays} deltas={views?.deltas} />
       <section className="charts">
         <CategoryBarChart

@@ -81,6 +81,10 @@ const COLUMNS = {
   repoSizeMB: (r) => r.repoSizeMB,
 };
 
+// Newest migration first: the rows people come back for are the ones that just
+// moved, not the start of the programme.
+const NEWEST_FIRST = { key: "createdAt", dir: "desc" };
+
 // Searchable table of every migrated repository. Each row is one target repo;
 // repeated attempts fold underneath it as a timeline.
 export default function MigrationsTable({ repositories, teamLabel = "Team", serverUrl = null, hasFilters = false, onClearFilters }) {
@@ -104,7 +108,7 @@ export default function MigrationsTable({ repositories, teamLabel = "Team", serv
     );
   }, [repositories, query]);
 
-  const { sorted: rows, sort, toggle: toggleSort } = useSort(filtered, COLUMNS);
+  const { sorted: rows, sort, toggle: toggleSort } = useSort(filtered, COLUMNS, NEWEST_FIRST);
   const scrollRef = useFillViewport([rows.length > 0]);
 
   const toggle = async (row) => {

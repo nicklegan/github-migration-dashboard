@@ -93,6 +93,9 @@ const COLUMNS = {
   migratedAt: (g) => g.migratedAt,
 };
 
+// Newest migration first, matching the repositories table.
+const NEWEST_FIRST = { key: "migratedAt", dir: "desc" };
+
 // Workflows folded under their repository. Each row carries only its workflow
 // counts, which is enough for the rolled-up status; the workflow list is fetched
 // when the row is expanded. A repository with a single workflow carries it on
@@ -117,7 +120,7 @@ export default function WorkflowsTable({ repositories, teamLabel = "Team", serve
     );
   }, [allGroups, query]);
 
-  const { sorted: groups, sort, toggle: toggleSort } = useSort(filtered, COLUMNS);
+  const { sorted: groups, sort, toggle: toggleSort } = useSort(filtered, COLUMNS, NEWEST_FIRST);
   const scrollRef = useFillViewport([groups.length > 0]);
 
   const toggle = async (group) => {
