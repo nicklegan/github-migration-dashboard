@@ -23,8 +23,9 @@ import {
   onboardingPlatformBreakdown,
   platformLabelOf,
   sizeDurationSeries,
+  usesTeams,
 } from "./distributions.js";
-import { medianDaysToOnboard } from "./recovery.js";
+import { medianDaysToOnboard, comparePeriods, onboardingStats, checkpointsFor } from "./recovery.js";
 import {
   applyFilters,
   toggleSelections,
@@ -34,7 +35,7 @@ import {
   DIMENSION_LABELS,
 } from "./crossFilter.js";
 import { workflowGroups, workflowCount } from "./groupWorkflows.js";
-import { RepositoryCards, WorkflowCards, OnboardingCards } from "./components/KpiCards.jsx";
+import { RepositoryCards, WorkflowCards } from "./components/KpiCards.jsx";
 import TabBar from "./components/TabBar.jsx";
 import DonutChart from "./components/DonutChart.jsx";
 import CategoryBarChart from "./components/CategoryBarChart.jsx";
@@ -46,6 +47,12 @@ import WorkflowsTable from "./components/WorkflowsTable.jsx";
 import TimelineChart from "./components/TimelineChart.jsx";
 import RecoveryCurveChart from "./components/RecoveryCurveChart.jsx";
 import RecoveryPulseChart from "./components/RecoveryPulseChart.jsx";
+import CohortTrendChart from "./components/CohortTrendChart.jsx";
+import OnboardingPeriodTable from "./components/OnboardingPeriodTable.jsx";
+import OnboardingExplainer from "./components/OnboardingExplainer.jsx";
+import OnboardingStatus from "./components/OnboardingStatus.jsx";
+import OnboardingSummary from "./components/OnboardingSummary.jsx";
+import { onboardingSummary } from "./onboardingSummary.js";
 import AppHeader from "./components/AppHeader.jsx";
 import Blankslate, { TableSkeleton } from "./components/Blankslate.jsx";
 import Icon from "./components/Icon.jsx";
@@ -69,14 +76,17 @@ function workflowTimelineCounts(row) {
   };
 }
 
-// The three states a migration can be in against its window. One set of words
-// for them everywhere on the tab — cards, curve, and breakdown — so nothing has
-// to be translated between charts.
-const ONBOARDING_SERIES = (green, red, amber) => [
-  { key: "complete", name: "Onboarded", color: green, filterValue: "Onboarded" },
-  { key: "inProgress", name: "Onboarding", color: amber, filterValue: "Onboarding" },
+// The states a migration can be in against its window. One set of words for
+// them everywhere on the tab — cards, curve, breakdown, and the explainer — so
+// nothing has to be translated between charts.
+const ONBOARDING_SERIES = (green, red, amber, late, gray) => [
+  { key: "complete", name: "On time", color: green, filterValue: "On time" },
+  { key: "late", name: "Late", color: late, filterValue: "Late" },
+  { key: "inProgress", name: "Still onboarding", color: amber, filterValue: "Still onboarding" },
   { key: "incomplete", name: "Not onboarded", color: red, filterValue: "Not onboarded" },
+  { key: "noWorkflows", name: "No workflows", color: gray, filterValue: "No workflows" },
 ];
+
 
 export default function App() {
   const { SUCCESS: GREEN, DANGER: RED, NEUTRAL: GRAY, ATTENTION: AMBER, categorical, stateColors } = useChartTheme();
@@ -146,6 +156,7 @@ export default function App() {
     // onboarding, and a longer one would hide the oldest repositories that never
     // came back online — the ones most overdue. Cross-filters still apply.
     const scopeFor = (except) => applyFilters(present, filters, except);
+    const onboardingWindow = summary?.onboardingWindowDays ?? 0;
     const migrations = rowsFor();
     const workflows = workflowTotals(migrations);
     const byState = rowsFor("state");
@@ -181,8 +192,17 @@ export default function App() {
       kpis: computeKpis(migrations),
       workflows,
       scope: {
-        ...onboardingBreakdown(scopeFor()),
-        ...workflowTotals(scopeFor()),      },
+        ...onboardingBreakdown(scopeFor(), { windowDays: onboardingWindow, nowMs }),
+        ...workflowTotals(scopeFor()),
+      },
+      // How fast repositories get green overall, and quarter by quarter, for
+      // the "is it getting better?" tiles and table.
+      onboardingOverall: onboardingStats(scopeFor(), {
+        nowMs,
+        windowDays: onboardingWindow,
+        checkpoints: checkpointsFor(onboardingWindow),
+      }),
+      onboardingPeriods: comparePeriods(scopeFor(), { nowMs, windowDays: onboardingWindow }),
       repoState: stateBreakdown(byState)
         .filter((s) => s.state === "SUCCEEDED" || s.state === "FAILED" || s.state === "SUPERSEDED")
         .map((s) => ({ name: s.state, value: s.count, color: stateColors[s.state] || GRAY })),
@@ -215,14 +235,17 @@ export default function App() {
       timeToOnboardOrgs: medianDaysToOnboard(scopeFor(["org"]), {
         groupOf: (row) => row.organization || "Unknown",
         keyName: "org",
+        nowMs,
       }),
       timeToOnboardTeams: medianDaysToOnboard(scopeFor(["team"]), {
         groupOf: (row) => row.team || "Unassigned",
         keyName: "team",
+        nowMs,
       }),
       timeToOnboardPlatforms: medianDaysToOnboard(scopeFor(["sourcePlatform"]), {
         groupOf: platformLabelOf,
         keyName: "sourcePlatform",
+        nowMs,
       }),
       workflowPlatforms: workflowPlatformBreakdown(rowsFor(["sourcePlatform", "workflowState"])),
       workflowTeams: workflowTeamBreakdown(rowsFor(["team", "workflowState"])),
@@ -233,7 +256,7 @@ export default function App() {
         { name: "Idle", value: byWorkflowState.idle, color: GRAY },
       ],
     };
-  }, [data, range, nowMs, filters, showRemoved, stateColors, GREEN, RED, GRAY, categorical]);
+  }, [data, summary, range, nowMs, filters, showRemoved, stateColors, GREEN, RED, GRAY, categorical]);
 
   if (error) return <main className="app"><p className="error">{error}</p></main>;
   if (!summary) {
@@ -254,6 +277,10 @@ export default function App() {
     : summaryStates(summary, stateColors, GRAY);
   const hasFilters = Object.keys(filters).length > 0;
   const windowDays = summary.onboardingWindowDays ?? 0;
+  // The charts about who owns what — migrations and workflow health on the
+  // overview, and where to act on onboarding — open on the team property when
+  // the estate uses one; otherwise on organization.
+  const ownerGroup = usesTeams(summary.teams) ? "team" : "org";
   // Onboarding is a tab at all only when there is something in it: no window
   // configured, or nothing measured against one yet, and it is left out.
   const onboardingTotals = summary.onboarding ?? {};
@@ -261,7 +288,9 @@ export default function App() {
     windowDays > 0 &&
     (onboardingTotals.inProgress ?? 0) +
       (onboardingTotals.complete ?? 0) +
-      (onboardingTotals.incomplete ?? 0) >
+      (onboardingTotals.late ?? 0) +
+      (onboardingTotals.incomplete ?? 0) +
+      (onboardingTotals.noWorkflows ?? 0) >
       0;
   const activeTab = tab ?? "overview";
   const clearFilters = () => setFilters({});
@@ -341,6 +370,7 @@ export default function App() {
       <section className="charts">
         <CategoryBarChart
           title="Migrations"
+          defaultGroup={ownerGroup}
           subtitle="Repositories migrated, and how they ended"
           groups={breakdownGroups({
             org: views ? views.repoOrgs : summaryGroups(summary.orgs, "org"),
@@ -453,6 +483,7 @@ export default function App() {
       <section className="charts">
         <CategoryBarChart
           title="Workflow health"
+          defaultGroup={ownerGroup}
           subtitle="Whether the workflows that came over still run"
           groups={breakdownGroups({
             org: views ? views.workflowOrgs : summaryWorkflowGroups(summary.orgs, "org"),
@@ -504,55 +535,116 @@ export default function App() {
           <h2 className="section-title">
             Onboarding
             <span className="section-note">
-              Every migration against its {windowDays}-day window, however long ago it happened
+              How long migrated repositories take to get every workflow green, measured against a{" "}
+              {windowDays}-day window from each repository's own migration
             </span>
           </h2>
           {views ? (
             <>
-              <OnboardingCards scope={views.scope} windowDays={windowDays} />
-              <section className="charts">
-                <CategoryBarChart
-                  title="Onboarding status"
-                  subtitle="Where each group's repositories stand against their window"
-                  groups={breakdownGroups({
-                    org: views.onboardingOrgs,
-                    team: views.onboardingTeams,
-                    sourcePlatform: views.onboardingPlatforms,
-                  })}
-                  activeValuesFor={selected}
-                  stacked
-                  seriesDimension="onboarding"
-                  activeSeriesValues={selected("onboarding")}
-                  onSelect={select}
-                  onSelectCombination={selectCombination}
-                  series={ONBOARDING_SERIES(GREEN, RED, AMBER)}
-                />
-                <CategoryBarChart
-                  title="Time to onboard"
-                  subtitle="Median days from migrating to every workflow green"
-                  groups={breakdownGroups({
-                    org: views.timeToOnboardOrgs,
-                    team: views.timeToOnboardTeams,
-                    sourcePlatform: views.timeToOnboardPlatforms,
-                  })}
-                  activeValuesFor={selected}
-                  onSelect={select}
-                  series={[{ key: "days", name: "Median days", color: categorical[0] }]}
+              <OnboardingSummary
+                sentences={onboardingSummary({
+                  status: views.scope,
+                  overall: views.onboardingOverall,
+                  periods: views.onboardingPeriods,
+                  windowDays,
+                })}
+              />
+              <OnboardingExplainer windowDays={windowDays} generatedAt={summary.generatedAt} />
+
+              <section className="onboarding-section" aria-labelledby="onb-where">
+                <h3 className="onboarding-section-title" id="onb-where">
+                  <span className="onboarding-section-step">1</span>
+                  Where things stand
+                </h3>
+                <div className="chart-card">
+                  <OnboardingStatus
+                    status={views.scope}
+                    windowDays={windowDays}
+                    colors={{ green: GREEN, red: RED, amber: AMBER, late: categorical[3], gray: GRAY }}
+                  />
+                </div>
+              </section>
+
+              <section className="onboarding-section" aria-labelledby="onb-how-long">
+                <h3 className="onboarding-section-title" id="onb-how-long">
+                  <span className="onboarding-section-step">2</span>
+                  How long it takes
+                </h3>
+                <RecoveryCurveChart
+                  title="Days from migration until every workflow is green"
+                  subtitle="Share of repositories at each day after their own migration"
+                  rows={views.onboardingRows}
+                  windowDays={windowDays}
+                  nowMs={nowMs}
+                  overall={views.onboardingOverall}
                 />
               </section>
-              <section className="charts charts-full">
-                <RecoveryCurveChart
-                  title="Getting back online"
-                  subtitle="How far into its window a repository is running again"
+
+              <section className="onboarding-section" aria-labelledby="onb-better">
+                <h3 className="onboarding-section-title" id="onb-better">
+                  <span className="onboarding-section-step">3</span>
+                  Is it getting better?
+                </h3>
+                <CohortTrendChart
+                  title="Fully green, by when repositories migrated"
+                  subtitle="Of the repositories migrated in each period, the share with every workflow green in time"
                   rows={views.onboardingRows}
                   windowDays={windowDays}
                   nowMs={nowMs}
                 />
+                <details className="disclosure">
+                  <summary>Compare periods side by side</summary>
+                  <OnboardingPeriodTable periods={views.onboardingPeriods} windowDays={windowDays} />
+                </details>
               </section>
-              <section className="charts charts-full">
+
+              <section className="onboarding-section" aria-labelledby="onb-act">
+                <h3 className="onboarding-section-title" id="onb-act">
+                  <span className="onboarding-section-step">4</span>
+                  Where to act
+                </h3>
+                <div className="charts">
+                  <CategoryBarChart
+                    title="Status by group"
+                    defaultGroup={ownerGroup}
+                    subtitle="Select a bar to filter the dashboard, then list those repositories on the Repositories tab"
+                    groups={breakdownGroups({
+                      org: views.onboardingOrgs,
+                      team: views.onboardingTeams,
+                      sourcePlatform: views.onboardingPlatforms,
+                    })}
+                    activeValuesFor={selected}
+                    stacked
+                    seriesDimension="onboarding"
+                    activeSeriesValues={selected("onboarding")}
+                    onSelect={select}
+                    onSelectCombination={selectCombination}
+                    series={ONBOARDING_SERIES(GREEN, RED, AMBER, categorical[3], GRAY)}
+                  />
+                  <CategoryBarChart
+                    title="Median days to fully green, by group"
+                    defaultGroup={ownerGroup}
+                    subtitle="Counted the same way as the summary; groups too small or too new to measure are left out"
+                    groups={breakdownGroups({
+                      org: views.timeToOnboardOrgs,
+                      team: views.timeToOnboardTeams,
+                      sourcePlatform: views.timeToOnboardPlatforms,
+                    })}
+                    activeValuesFor={selected}
+                    onSelect={select}
+                    series={[{ key: "days", name: "Median days", color: categorical[0] }]}
+                  />
+                </div>
+              </section>
+
+              <section className="onboarding-section" aria-labelledby="onb-keeping-up">
+                <h3 className="onboarding-section-title" id="onb-keeping-up">
+                  <span className="onboarding-section-step">5</span>
+                  Keeping up
+                </h3>
                 <RecoveryPulseChart
-                  title="Arrivals and recoveries"
-                  subtitle="Repositories migrating against repositories coming back online"
+                  title="Migrated against fully green, per period"
+                  subtitle="While the line keeps up with the bars, repositories are getting green as fast as they arrive"
                   rows={views.onboardingRows}
                   range="all"
                   nowMs={nowMs}

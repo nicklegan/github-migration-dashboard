@@ -49,19 +49,6 @@ function Bank({ title, description, children, columns }) {
   );
 }
 
-// How many of the repositories whose window has closed came back healthy. Those
-// still inside their window are not counted either way: they have not been
-// asked the question yet.
-function onboardingRate({ complete = 0, incomplete = 0 }) {
-  const settled = complete + incomplete;
-  return settled ? complete / settled : null;
-}
-
-function settledHint({ complete = 0, incomplete = 0 }) {
-  const settled = complete + incomplete;
-  return settled ? `From ${count(settled)} settled` : "No window has closed yet";
-}
-
 // `deltas` carries this week's movement, computed by the caller over the same
 // filtered rows, so a tile can say "+12 this week" without a second data path.
 export function RepositoryCards({ kpis, deltas }) {
@@ -95,7 +82,7 @@ export function WorkflowCards({ workflows, windowDays, deltas }) {
   const hasWindow = windowDays > 0;
   return (
     <div className="stat-banks">
-      <Bank columns={6}>
+      <Bank columns={hasWindow ? 7 : 6}>
         <Stat tone="success" value={count(workflows.succeeded)} label="Succeeded" delta={deltas?.workflowsSucceeded} deltaTone="success" />
         <Stat tone="danger" value={count(workflows.failing)} label="Failing" delta={deltas?.workflowsFailing} deltaTone="danger" />
         <Stat tone="idle" value={count(workflows.idle)} label="Idle" hint="No run succeeded or failed" />
@@ -105,50 +92,16 @@ export function WorkflowCards({ workflows, windowDays, deltas }) {
           label="Manual-only"
           hint="Run on demand, so unscored"
         />
-        {hasWindow ? (
+        {hasWindow && (
           <Stat
             tone="idle"
             value={count(workflows.postOnboarding)}
             label="Added later"
             hint="After the window closed"
           />
-        ) : (
-          <Stat tone="danger" value={count(workflows.failingRepos)} label="Repos with failures" hint="At least one failing workflow" />
         )}
+        <Stat tone="danger" value={count(workflows.failingRepos)} label="Repos with failures" hint="At least one failing workflow" />
         <Stat value={percent1(workflows.successRate)} label="Success rate" hint="Of succeeded and failing" />
-      </Bank>
-    </div>
-  );
-}
-
-// Kept apart from the banks above because it is measured differently: these
-// count every migration against its own window rather than the selected time
-// range, so they belong with the onboarding chart rather than beside numbers
-// the range filter moves.
-export function OnboardingCards({ scope, windowDays }) {
-  if (!(windowDays > 0)) return null;
-  return (
-    <div className="stat-banks">
-      <Bank columns={5}>
-        <Stat value={count(scope.inProgress)} label="Onboarding" hint="Still inside the window" />
-        <Stat tone="success" value={count(scope.complete)} label="Onboarded" hint="Every workflow succeeded" />
-        <Stat
-          tone="danger"
-          value={count(scope.incomplete)}
-          label="Not onboarded"
-          hint="Window closed, workflows still failing or never run"
-        />
-        <Stat
-          value={percent1(onboardingRate(scope))}
-          label="Onboarding rate"
-          hint={settledHint(scope)}
-        />
-        <Stat
-          tone="danger"
-          value={count(scope.failingRepos)}
-          label="With failing workflows"
-          hint="At any stage of the window"
-        />
       </Bank>
     </div>
   );

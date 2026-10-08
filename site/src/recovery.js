@@ -22,7 +22,10 @@ const MIN_AT_RISK = 5;
 // This is right-censoring, the standard treatment for a population still
 // arriving. The curve stays honest at the left and thins out at the right, where
 // it is drawn from the few cohorts old enough to have got there.
-function recoveryCurve(rows, { windowDays, nowMs = Date.now(), points = 40 } = {}) {
+//
+// `extraDays` are evaluated exactly as well as on the regular steps, so a
+// figure quoted elsewhere — "16% by day 7" — sits on the line, not near it.
+function recoveryCurve(rows, { windowDays, nowMs = Date.now(), points = 40, extraDays = [] } = {}) {
   const population = rows.filter(eligible);
   // Repositories that are green but cannot be dated. They are left out, and
   // that exclusion is one-sided — a red repository needs no date to be counted
@@ -34,8 +37,13 @@ function recoveryCurve(rows, { windowDays, nowMs = Date.now(), points = 40 } = {
   const elapsed = population.map((row) => (nowMs - Date.parse(row.migratedAt ?? row.createdAt)) / DAY_MS);
   const step = windowDays / Math.max(1, points);
 
+  const days = [];
+  for (let day = 0; day <= windowDays + 1e-9; day += step) days.push(day);
+  for (const day of extraDays) if (day > 0 && day < windowDays) days.push(day);
+  days.sort((a, b) => a - b);
+
   const series = [];
-  for (let day = 0; day <= windowDays + 1e-9; day += step) {
+  for (const day of days) {
     let atRisk = 0;
     let green = 0;
     let stirring = 0;
@@ -124,52 +132,367 @@ function round(value) {
   return Math.round(value * 100) / 100;
 }
 
-// Repositories that did come back, but only after their window had closed. They
-// are the difference between the cards above the curve, which count what is
-// green now, and the curve, which counts what was green in time. Worth naming:
-// a recovery on day 90 of a 60-day window is a miss that fixed itself.
+// Repositories that did come back, but only after their window had closed: the
+// Late status. The curve stops at the window, so it never shows them; its
+// footnote names them instead. A recovery on day 90 of a 60-day window is a
+// miss that fixed itself.
 function lateRecoveries(rows, windowDays) {
   if (!(windowDays > 0)) return 0;
   return rows.filter((row) => eligible(row) && row.daysToGreen > windowDays).length;
 }
 
-// How long a group's repositories typically take to get every workflow green.
-// The median rather than the mean: one repository that took eight months should
-// not be able to move a team's number on its own.
+// How long a group's repositories typically take to get every workflow green,
+// read the same way as the headline median (see medianDaysToGreen) so the bars
+// and the summary can never tell different stories.
 //
-// Only repositories that actually got there can be timed, which is a trap — a
-// group where one repository of fifty recovered would post a flattering median
-// off that single sample. Groups below `minSamples` recoveries are left out
+// Timing only the repositories that got there is a trap: a group where one of
+// fifty recovered would post the best median on the chart. So a group is shown
+// only when half of it is measurably green; the rest are counted in a note
 // rather than plotted on a number that cannot bear the weight.
-function medianDaysToOnboard(rows, { groupOf, keyName, minSamples = 5 } = {}) {
+function medianDaysToOnboard(rows, { groupOf, keyName, nowMs = Date.now() } = {}) {
   const groups = new Map();
   for (const row of rows) {
-    if (!eligible(row) || row.daysToGreen == null) continue;
+    if (!eligible(row)) continue;
     const key = groupOf(row);
     if (key == null) continue;
     if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(row.daysToGreen);
+    groups.get(key).push(row);
   }
 
   const out = [];
-  let dropped = 0;
-  for (const [key, days] of groups) {
-    if (days.length < minSamples) {
-      dropped += 1;
-      continue;
-    }
-    out.push({ [keyName]: key, days: round(median(days)), samples: days.length });
+  let tooFew = 0;
+  let notYet = 0;
+  for (const [key, members] of groups) {
+    const result = medianDaysToGreen(members, { nowMs });
+    if (!result) tooFew += 1;
+    else if (result.days == null) notYet += 1;
+    else out.push({ [keyName]: key, days: result.days, samples: members.length });
   }
-  if (dropped > 0) {
-    out.note = `${dropped} group${dropped === 1 ? "" : "s"} with fewer than ${minSamples} onboarded repositories ${dropped === 1 ? "is" : "are"} not shown: too few to time.`;
+
+  const reasons = [];
+  if (tooFew > 0) reasons.push(`${tooFew} with fewer than ${MIN_AT_RISK} repositories to measure`);
+  if (notYet > 0) reasons.push(`${notYet} where fewer than half are fully green yet`);
+  if (reasons.length > 0) {
+    const hidden = tooFew + notYet;
+    out.note = `${hidden} group${hidden === 1 ? "" : "s"} not shown: ${reasons.join(", ")}.`;
   }
   return out;
 }
 
-function median(values) {
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+// ---------------------------------------------------------------------------
+// Trends: is onboarding getting faster?
+//
+// Everything below compares groups of repositories by *when they migrated* — a
+// cohort — while still measuring each one on its own clock. The same censoring
+// rule as the curve applies throughout: a repository counts towards "green by
+// day N" only once it has had N days, so a cohort migrated last week is neither
+// a failure nor a success at day 30, it is simply not in that figure yet.
+// Without that rule every recent cohort would look worse than it is, and any
+// improvement would be hidden by exactly the repositories it applies to.
+
+function elapsedDays(row, nowMs) {
+  return (nowMs - Date.parse(row.migratedAt ?? row.createdAt)) / DAY_MS;
 }
 
-export { recoveryCurve, recoveryPulse, lateRecoveries, medianDaysToOnboard };
+// The share of repositories fully green by `day`, among those that have had
+// `day` days to get there. Null when too few have: a percentage of three
+// repositories is an anecdote.
+//
+// `minShare` additionally requires that share of the group to have had `day`
+// days. Comparisons need it: a month measured on the five repositories from its
+// first morning stands for that morning, not the month, and plotted beside full
+// months it reads as a collapse.
+function greenShareBy(rows, day, { nowMs = Date.now(), minAtRisk = MIN_AT_RISK, minShare = 0 } = {}) {
+  let population = 0;
+  let atRisk = 0;
+  let green = 0;
+  for (const row of rows) {
+    if (!eligible(row)) continue;
+    population += 1;
+    if (elapsedDays(row, nowMs) < day) continue;
+    atRisk += 1;
+    if (row.daysToGreen != null && row.daysToGreen <= day) green += 1;
+  }
+  if (atRisk < minAtRisk || atRisk < minShare * population) return null;
+  return { share: green / atRisk, atRisk, green };
+}
+
+// How much of a cohort or period must have reached a day before it is compared
+// on that day.
+const COMPARABLE_SHARE = 0.5;
+
+// The day by which half the repositories were fully green, read off the same
+// censored curve rather than taken over only the repositories that got there.
+// The naive median rewards a cohort for being young: only its fastest members
+// have finished, so it looks quick until the rest arrive.
+//
+// Returns `{ days }` when the curve crosses half, or `{ days: null, over }` when
+// it has not by the furthest day enough repositories have reached — "longer
+// than `over` days", which is itself the finding.
+function medianDaysToGreen(rows, { nowMs = Date.now(), minAtRisk = MIN_AT_RISK } = {}) {
+  const population = rows.filter(eligible);
+  const n = population.length;
+  if (n < minAtRisk) return null;
+
+  const ascending = (a, b) => a - b;
+  const elapsed = population.map((row) => elapsedDays(row, nowMs)).sort(ascending);
+  // A repository goes green no later than now, so its green day never exceeds
+  // its elapsed days; clamping keeps that true across a clock that drifted.
+  const greens = population
+    .map((row) => (row.daysToGreen != null ? [Math.min(row.daysToGreen, elapsedDays(row, nowMs)), elapsedDays(row, nowMs)] : null))
+    .filter(Boolean);
+  const greenDays = greens.map(([day]) => day).sort(ascending);
+  const greenElapsed = greens.map(([, e]) => e).sort(ascending);
+
+  // The share only changes where a repository goes green or drops out of the
+  // at-risk set, so those are the only days worth evaluating — swept in order
+  // with three pointers rather than recounted at every step.
+  const days = [...new Set([0, ...greenDays, ...elapsed])].filter((d) => d >= 0).sort(ascending);
+  let dropped = 0; // elapsed < day
+  let reached = 0; // green day <= day
+  let greenDropped = 0; // green, but elapsed < day
+  let lastReached = 0;
+  for (const day of days) {
+    while (dropped < n && elapsed[dropped] < day) dropped += 1;
+    while (reached < greenDays.length && greenDays[reached] <= day) reached += 1;
+    while (greenDropped < greenElapsed.length && greenElapsed[greenDropped] < day) greenDropped += 1;
+    const atRisk = n - dropped;
+    if (atRisk < minAtRisk) break;
+    lastReached = day;
+    if ((reached - greenDropped) / atRisk >= 0.5) return { days: round(day), atRisk };
+
+    // A repository is at risk on its own last day and gone just after it, so a
+    // red one leaving can lift the share over half between two candidate days.
+    // Checking only on them would report the next one, which can be weeks on.
+    let after = dropped;
+    let greenAfter = greenDropped;
+    while (after < n && elapsed[after] <= day) after += 1;
+    while (greenAfter < greenElapsed.length && greenElapsed[greenAfter] <= day) greenAfter += 1;
+    const atRiskAfter = n - after;
+    if (atRiskAfter < minAtRisk) break;
+    if ((reached - greenAfter) / atRiskAfter >= 0.5) return { days: round(day), atRisk: atRiskAfter };
+  }
+  return { days: null, over: Math.floor(lastReached) };
+}
+
+// The headline figures for one group of repositories. `checkpoints` are the
+// days the dashboard reports "green by day N" for; the window itself is always
+// one of them, and is what "on time" means.
+function onboardingStats(rows, { nowMs = Date.now(), windowDays, checkpoints = [], minShare = 0 } = {}) {
+  const population = rows.filter(eligible);
+  const by = {};
+  for (const day of checkpoints) by[day] = greenShareBy(population, day, { nowMs, minShare });
+  return {
+    repositories: population.length,
+    median: medianDaysToGreen(population, { nowMs }),
+    by,
+    onTime: windowDays > 0 ? greenShareBy(population, windowDays, { nowMs, minShare }) : null,
+  };
+}
+
+// The "green by day N" checkpoints worth reporting for a window: a first week,
+// a first month, and the window itself, without repeating it or passing it.
+function checkpointsFor(windowDays) {
+  return [7, 30].filter((day) => windowDays > 0 && day < windowDays);
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// Calendar buckets in UTC, so a cohort is the same set of repositories for
+// everyone who opens the dashboard. Weeks start on Monday.
+function bucketStart(ms, granularity) {
+  const d = new Date(ms);
+  if (granularity === "week") {
+    const offset = (d.getUTCDay() + 6) % 7;
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - offset);
+  }
+  if (granularity === "quarter") {
+    return Date.UTC(d.getUTCFullYear(), Math.floor(d.getUTCMonth() / 3) * 3, 1);
+  }
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+}
+
+function nextBucket(start, granularity) {
+  const d = new Date(start);
+  if (granularity === "week") return start + 7 * DAY_MS;
+  const months = granularity === "quarter" ? 3 : 1;
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + months, 1);
+}
+
+function bucketLabel(start, granularity) {
+  const d = new Date(start);
+  const year = d.getUTCFullYear();
+  if (granularity === "week") return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${year}`;
+  if (granularity === "quarter") return `Q${Math.floor(d.getUTCMonth() / 3) + 1} ${year}`;
+  return `${MONTHS[d.getUTCMonth()]} ${year}`;
+}
+
+function migratedMs(row) {
+  return Date.parse(row.migratedAt ?? row.createdAt ?? "");
+}
+
+// One point per migration cohort, from the first cohort to the last with no
+// gaps, so the x-axis is calendar time and a quiet month reads as one. Each
+// point carries the same figures as the comparison table, censored the same way.
+function cohortTrend(rows, { granularity = "month", nowMs = Date.now(), windowDays } = {}) {
+  const population = rows.filter(eligible);
+  if (population.length === 0) return { points: [] };
+
+  const groups = new Map();
+  let first = Infinity;
+  let last = -Infinity;
+  for (const row of population) {
+    const at = migratedMs(row);
+    if (!Number.isFinite(at)) continue;
+    const start = bucketStart(at, granularity);
+    if (!groups.has(start)) groups.set(start, []);
+    groups.get(start).push(row);
+    if (start < first) first = start;
+    if (start > last) last = start;
+  }
+  if (!Number.isFinite(first)) return { points: [] };
+
+  const checkpoints = checkpointsFor(windowDays);
+  const points = [];
+  for (let start = first; start <= last; start = nextBucket(start, granularity)) {
+    const cohort = groups.get(start) ?? [];
+    const stats = onboardingStats(cohort, { nowMs, windowDays, checkpoints, minShare: COMPARABLE_SHARE });
+    const point = {
+      at: start,
+      label: bucketLabel(start, granularity),
+      repositories: cohort.length,
+      median: stats.median?.days ?? null,
+      medianOver: stats.median && stats.median.days == null ? stats.median.over : null,
+      onTime: stats.onTime?.share ?? null,
+      onTimeAtRisk: stats.onTime?.atRisk ?? 0,
+    };
+    for (const day of checkpoints) {
+      point[`by${day}`] = stats.by[day]?.share ?? null;
+      point[`by${day}AtRisk`] = stats.by[day]?.atRisk ?? 0;
+    }
+    points.push(point);
+  }
+
+  return { points, checkpoints };
+}
+
+// The newest groups have often had no time to reach even the shortest
+// checkpoint, so they carry no value on any line. Drawn, they are an empty
+// column at the edge that says nothing; dropping them gives the groups that
+// can be read the room. Groups with no value further left are kept, since a gap
+// there is a small or slow group, not one that is too new.
+function trimUnmeasured(points, keys) {
+  let end = points.length;
+  while (end > 0 && keys.every((key) => points[end - 1][key] == null)) end -= 1;
+  return end === points.length ? points : points.slice(0, end);
+}
+
+// Where the cohorts too young to measure begin: the first cohort after the last
+// one with a value for `key`. Everything from there to today is still being
+// decided, which the chart shades rather than leaving as unexplained blank
+// space. Null when the newest cohort already has a value.
+function pendingFrom(points, key) {
+  let last = -1;
+  for (let i = 0; i < points.length; i += 1) if (points[i][key] != null) last = i;
+  return last < points.length - 1 ? points[last + 1] : null;
+}
+
+const shortDate = (ms) => {
+  const d = new Date(ms);
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+};
+
+// Most periods a comparison shows side by side before the oldest are folded
+// together. Past four the table stops reading as "then versus now".
+const MAX_PERIODS = 4;
+
+// The periods the comparison sets side by side: calendar quarters, or months
+// for an estate too young to have two quarters. The oldest fold into "Earlier".
+function onboardingPeriods(rows) {
+  const population = rows.filter((row) => eligible(row) && Number.isFinite(migratedMs(row)));
+  if (population.length === 0) return [];
+
+  for (const granularity of ["quarter", "month"]) {
+    const starts = [...new Set(population.map((row) => bucketStart(migratedMs(row), granularity)))].sort(
+      (a, b) => a - b,
+    );
+    if (starts.length < 2 && granularity !== "month") continue;
+    let periods = starts.map((start) => ({
+      key: String(start),
+      label: bucketLabel(start, granularity),
+      phrase: `in ${bucketLabel(start, granularity)}`,
+      from: start,
+      to: nextBucket(start, granularity),
+    }));
+    if (periods.length > MAX_PERIODS) {
+      const kept = periods.slice(-(MAX_PERIODS - 1));
+      periods = [{ key: "earlier", label: "Earlier", phrase: "earlier", from: -Infinity, to: kept[0].from }, ...kept];
+    }
+    return withRows(periods, population).filter((p) => p.rows.length > 0);
+  }
+  return [];
+}
+
+function withRows(periods, population) {
+  return periods.map((period) => {
+    const rows = population.filter((row) => {
+      const at = migratedMs(row);
+      return at >= period.from && at < period.to;
+    });
+    let first = Infinity;
+    let last = -Infinity;
+    for (const row of rows) {
+      const at = migratedMs(row);
+      if (at < first) first = at;
+      if (at > last) last = at;
+    }
+    return {
+      ...period,
+      rows,
+      range: rows.length ? `${shortDate(first)} – ${shortDate(last)}` : "",
+    };
+  });
+}
+
+// Each period's figures, ready for the comparison table and the trend tiles.
+function comparePeriods(rows, { nowMs = Date.now(), windowDays } = {}) {
+  const checkpoints = checkpointsFor(windowDays);
+  return onboardingPeriods(rows).map(({ rows: periodRows, ...period }) => ({
+    ...period,
+    ...onboardingStats(periodRows, { nowMs, windowDays, checkpoints, minShare: COMPARABLE_SHARE }),
+  }));
+}
+
+// The latest period with a figure for `pick`, against the one before it that
+// also has one, so a tile can say which way things are moving. Null when fewer
+// than two periods can be measured. The phrases slot into a sentence: "61 days
+// in Q2 2026".
+function latestChange(periods, pick) {
+  const measured = periods.filter((p) => pick(p) != null);
+  if (measured.length < 2) return null;
+  const current = measured.at(-1);
+  const previous = measured.at(-2);
+  return {
+    current: pick(current),
+    previous: pick(previous),
+    currentPhrase: current.phrase ?? current.label,
+    previousPhrase: previous.phrase ?? previous.label,
+  };
+}
+
+export {
+  recoveryCurve,
+  recoveryPulse,
+  lateRecoveries,
+  medianDaysToOnboard,
+  greenShareBy,
+  medianDaysToGreen,
+  onboardingStats,
+  checkpointsFor,
+  cohortTrend,
+  pendingFrom,
+  trimUnmeasured,
+  onboardingPeriods,
+  comparePeriods,
+  latestChange,
+};

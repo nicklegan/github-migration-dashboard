@@ -375,11 +375,49 @@ test("a window that closes with a workflow never green is incomplete", () => {
   assert.equal(rows[0].onboarding, "incomplete");
 });
 
-test("a repository with no workflows at all is onboarded, not incomplete", () => {
+test("a repository with no workflows is its own status, not onboarded", () => {
+  // Counting it onboarded inflated the very number people read as "CI is back".
   const { rows } = buildRows(onboardingLog, repoWith({}), {
     windowMs: WINDOW,
     now: Date.parse("2026-06-01T00:00:00Z"),
   });
+  assert.equal(rows[0].onboarding, "no-workflows");
+});
+
+test("a repository with no workflows yet is still onboarding while its window is open", () => {
+  // Converting pipelines into workflows is often what the window is spent on.
+  const { rows } = buildRows(onboardingLog, repoWith({}), {
+    windowMs: WINDOW,
+    now: Date.parse("2026-01-20T00:00:00Z"),
+  });
+  assert.equal(rows[0].onboarding, "in-progress");
+});
+
+test("a repository green inside its window is onboarded straight away", () => {
+  const { rows } = buildRows(
+    onboardingLog,
+    repoWith({ "ci.yml": { name: "CI", status: "succeeded", firstSuccessAt: "2026-01-03T00:00:00Z" } }),
+    { windowMs: WINDOW, now: Date.parse("2026-01-20T00:00:00Z") },
+  );
+  assert.equal(rows[0].onboarding, "complete");
+});
+
+test("a repository that went green after its window closed is late, not on time", () => {
+  const { rows } = buildRows(
+    onboardingLog,
+    repoWith({ "ci.yml": { name: "CI", status: "succeeded", firstSuccessAt: "2026-04-01T00:00:00Z" } }),
+    { windowMs: WINDOW, now: Date.parse("2026-06-01T00:00:00Z") },
+  );
+  assert.equal(rows[0].onboarding, "late");
+});
+
+test("a green repository that cannot be dated counts as onboarded rather than as a miss", () => {
+  const { rows } = buildRows(
+    onboardingLog,
+    repoWith({ "ci.yml": { name: "CI", status: "succeeded" } }),
+    { windowMs: WINDOW, now: Date.parse("2026-06-01T00:00:00Z") },
+  );
+  assert.equal(rows[0].greenUndated, true);
   assert.equal(rows[0].onboarding, "complete");
 });
 
@@ -402,7 +440,7 @@ test("a workflow added after the window is reported but excluded from migration 
   assert.equal(workflows.find((w) => w.name === "CI").onboarding, true);
 });
 
-test("a repository whose only workflow is manual is onboarded, not incomplete", () => {
+test("a repository whose only workflow is manual has nothing to onboard, and is not incomplete", () => {
   // Nothing triggers it, so it can sit idle forever without anything being wrong.
   const { rows, detail } = buildRows(
     onboardingLog,
@@ -412,7 +450,7 @@ test("a repository whose only workflow is manual is onboarded, not incomplete", 
 
   assert.equal(rows[0].workflows.manual, 1);
   assert.equal(rows[0].workflows.idle, 0);
-  assert.equal(rows[0].onboarding, "complete");
+  assert.equal(rows[0].onboarding, "no-workflows");
   assert.equal(detail.get(rows[0].d)["o/api"].workflows[0].manual, true);
 });
 
@@ -424,5 +462,5 @@ test("buildSummary rolls up onboarding status", () => {
     }).rows,
     [],
   );
-  assert.deepEqual(summary.onboarding, { inProgress: 0, complete: 0, incomplete: 1 });
+  assert.deepEqual(summary.onboarding, { inProgress: 0, complete: 0, late: 0, incomplete: 1, noWorkflows: 0 });
 });

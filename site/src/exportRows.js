@@ -43,8 +43,8 @@ function migrationCsv(rows, { teamLabel = "Team", serverUrl = null } = {}) {
     "Removed",
     "Superseded by",
     "Onboarding",
-    "Back online",
-    "Days to green",
+    "Fully green at",
+    "Days to fully green",
   ];
 
   return {

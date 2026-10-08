@@ -56,6 +56,7 @@ export default function CategoryBarChart({
   xKey: singleKey,
   activeValues: singleActiveValues = [],
   groups,
+  defaultGroup,
   activeValuesFor,
   series,
   stacked,
@@ -68,7 +69,9 @@ export default function CategoryBarChart({
 }) {
   const { tooltipProps, legendProps, AXIS_TICK, AXIS_LINE, LABEL, GRID, CURSOR } = useChartTheme();
   const [expanded, setExpanded] = useState(false);
-  const [dimension, setDimension] = useState(groups?.[0]?.key ?? null);
+  // `defaultGroup` only picks the starting grouping; after that it is the
+  // reader's. A default that is not on offer falls back to the first group.
+  const [dimension, setDimension] = useState(defaultGroup ?? groups?.[0]?.key ?? null);
 
   // A cross-filter can remove the selected dimension's data; falling back to the
   // first group beats rendering an empty chart with no explanation.
@@ -234,6 +237,7 @@ export default function CategoryBarChart({
                 iconType="circle"
                 iconSize={8}
                 {...legendProps}
+                itemSorter={null}
                 formatter={legendFormatter}
                 onClick={onSelect && seriesDimension ? handleLegendClick : undefined}
                 wrapperStyle={{

@@ -44,7 +44,7 @@ test("source platform and onboarding filter on their labels", () => {
   assert.deepEqual(matched({ sourcePlatform: ["GitLab"] }), ["a"]);
   assert.deepEqual(matched({ sourcePlatform: ["Unknown"] }), ["c"]);
   assert.deepEqual(matched({ onboarding: ["Not onboarded"] }), ["b"]);
-  assert.deepEqual(matched({ onboarding: ["Onboarded", "Not onboarded"] }), ["a", "b"]);
+  assert.deepEqual(matched({ onboarding: ["On time", "Not onboarded"] }), ["a", "b"]);
 });
 
 test("applyFilters returns every row when nothing is selected", () => {

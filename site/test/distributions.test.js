@@ -13,6 +13,7 @@ import {
   warningBucketOf,
   durationBucketOf,
   onboardingLabelOf,
+  usesTeams,
   platformLabelOf,
 } from "../src/distributions.js";
 
@@ -114,13 +115,18 @@ test("onboarding is grouped by team and by organization, laggards included", () 
     row({ team: null, organization: "org-b", onboarding: "in-progress" }),
     // A repository the window does not apply to counts nowhere.
     row({ team: "Payments", onboarding: null }),
+    row({ team: "Payments", onboarding: "late" }),
+    row({ team: "Payments", onboarding: "no-workflows" }),
   ];
   assert.deepEqual(onboardingTeamBreakdown(rows), [
-    { team: "Payments", inProgress: 0, complete: 1, incomplete: 1 },
-    { team: "Unassigned", inProgress: 1, complete: 0, incomplete: 0 },
+    { team: "Payments", inProgress: 0, complete: 1, late: 1, incomplete: 1, noWorkflows: 1 },
+    { team: "Unassigned", inProgress: 1, complete: 0, late: 0, incomplete: 0, noWorkflows: 0 },
   ]);
   assert.deepEqual(onboardingOrgBreakdown(rows).map((o) => o.org), ["org-a", "org-b"]);
-  assert.equal(onboardingLabelOf({ onboarding: "in-progress" }), "Onboarding");
+  assert.equal(onboardingLabelOf({ onboarding: "in-progress" }), "Still onboarding");
+  assert.equal(onboardingLabelOf({ onboarding: "complete" }), "On time");
+  assert.equal(onboardingLabelOf({ onboarding: "late" }), "Late");
+  assert.equal(onboardingLabelOf({ onboarding: "no-workflows" }), "No workflows");
   assert.equal(onboardingLabelOf({ onboarding: null }), null);
 });
 
@@ -162,8 +168,8 @@ test("onboarding is grouped by source platform too", () => {
     ado({ onboarding: "in-progress" }),
   ]);
   assert.deepEqual(breakdown, [
-    { sourcePlatform: "GitLab", inProgress: 0, complete: 2, incomplete: 1 },
-    { sourcePlatform: "Azure DevOps", inProgress: 1, complete: 0, incomplete: 1 },
+    { sourcePlatform: "GitLab", inProgress: 0, complete: 2, late: 0, incomplete: 1, noWorkflows: 0 },
+    { sourcePlatform: "Azure DevOps", inProgress: 1, complete: 0, late: 0, incomplete: 1, noWorkflows: 0 },
   ]);
 });
 
@@ -172,4 +178,11 @@ test("an empty selection produces empty breakdowns, not placeholder rows", () =>
   assert.deepEqual(warningBreakdown([]), []);
   assert.deepEqual(platformBreakdown([]), []);
   assert.deepEqual(sizeDurationSeries([]).series, []);
+});
+
+test("the team property counts as used once any repository has a team", () => {
+  assert.equal(usesTeams([{ key: "Unassigned" }, { key: "Payments" }]), true);
+  assert.equal(usesTeams([{ key: "Unassigned" }]), false);
+  assert.equal(usesTeams([]), false);
+  assert.equal(usesTeams(undefined), false);
 });

@@ -124,13 +124,49 @@ test("onboarding counts do not depend on the selected time range", () => {
     { createdAt: "2026-03-01T00:00:00Z", onboarding: "complete" },
     { createdAt: "2026-08-28T00:00:00Z", onboarding: "in-progress" },
   ];
-  const scoped = onboardingBreakdown(rows);
-  assert.deepEqual(scoped, { inProgress: 1, complete: 1, incomplete: 1 });
+  const scoped = onboardingBreakdown(rows, { windowDays: 60, nowMs: now });
+  assert.equal(scoped.inProgress, 1);
+  assert.equal(scoped.complete, 1);
+  assert.equal(scoped.incomplete, 1);
   // Through the range filter the two settled repositories would disappear, and
   // the one left would report nothing outstanding.
-  assert.deepEqual(onboardingBreakdown(filterByRange(rows, "week", now)), {
+  const ranged = onboardingBreakdown(filterByRange(rows, "week", now), { windowDays: 60, nowMs: now });
+  assert.equal(ranged.inProgress, 1);
+  assert.equal(ranged.complete + ranged.incomplete, 0);
+});
+
+test("the on-time rate is over closed windows only", () => {
+  const now = Date.parse("2026-09-01T00:00:00Z");
+  const rows = [
+    { migratedAt: "2026-01-01T00:00:00Z", onboarding: "complete" },
+    { migratedAt: "2026-02-01T00:00:00Z", onboarding: "complete" },
+    { migratedAt: "2026-03-01T00:00:00Z", onboarding: "late" },
+    { migratedAt: "2026-04-01T00:00:00Z", onboarding: "incomplete" },
+    // Green inside an open window: on time, but not yet in the rate, so a new
+    // batch's fastest repositories cannot flatter it.
+    { migratedAt: "2026-08-20T00:00:00Z", onboarding: "complete" },
+    { migratedAt: "2026-08-25T00:00:00Z", onboarding: "in-progress" },
+    // Nothing to run is in no rate at all.
+    { migratedAt: "2026-01-01T00:00:00Z", onboarding: "no-workflows" },
+  ];
+  const totals = onboardingBreakdown(rows, { windowDays: 60, nowMs: now });
+  assert.deepEqual(totals, {
     inProgress: 1,
-    complete: 0,
-    incomplete: 0,
+    complete: 3,
+    late: 1,
+    incomplete: 1,
+    noWorkflows: 1,
+    onTimeSettled: 2,
+    settled: 4,
+    onTimeRate: 0.5,
   });
+});
+
+test("with no closed window there is no on-time rate yet", () => {
+  const now = Date.parse("2026-09-01T00:00:00Z");
+  const totals = onboardingBreakdown([{ migratedAt: "2026-08-30T00:00:00Z", onboarding: "complete" }], {
+    windowDays: 60,
+    nowMs: now,
+  });
+  assert.equal(totals.onTimeRate, null);
 });

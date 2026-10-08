@@ -15,7 +15,7 @@ test("every field the action writes reaches the dashboard", () => {
     removed: 15,
     teamLabel: "Business unit",
     kpis: { total: 170 },
-    onboarding: { inProgress: 8, complete: 137, incomplete: 22 },
+    onboarding: { inProgress: 8, complete: 137, late: 4, incomplete: 22, noWorkflows: 9 },
     workflows: { total: 44, manual: 12 },
     states: [{ state: "SUCCEEDED", count: 167 }],
     teams: [{ key: "Payments" }],

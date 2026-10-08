@@ -69,15 +69,15 @@ test("a repository that moved exports both names and links to the current one", 
   assert.equal(cell("Migrated as"), "org-a/api");
 });
 
-test("a repository back online exports when it got there, and how long it took", () => {
+test("a fully green repository exports when it got there, and how long it took", () => {
   const { headers, rows } = migrationCsv(
     [{ ...row, backOnlineAt: "2026-01-17T12:00:00Z", daysToGreen: 14.52 }],
     {},
   );
   const cell = (name) => rows[0][headers.indexOf(name)];
 
-  assert.equal(cell("Back online"), "2026-01-17T12:00:00.000Z");
-  assert.equal(cell("Days to green"), 14.5);
+  assert.equal(cell("Fully green at"), "2026-01-17T12:00:00.000Z");
+  assert.equal(cell("Days to fully green"), 14.5);
 });
 
 // A zero would average in as if the repository were instant, which is the
@@ -86,8 +86,8 @@ test("a repository not yet green exports a blank, not a zero", () => {
   const { headers, rows } = migrationCsv([row], {});
   const cell = (name) => rows[0][headers.indexOf(name)];
 
-  assert.equal(cell("Back online"), "");
-  assert.equal(cell("Days to green"), null);
+  assert.equal(cell("Fully green at"), "");
+  assert.equal(cell("Days to fully green"), null);
 });
 
 test("the export is exactly the rows it was given", () => {

@@ -78,13 +78,28 @@ function migratedAtOf(attempts) {
   return attempts.reduce((last, a) => (a.createdAt > last ? a.createdAt : last), attempts[0].createdAt);
 }
 
-// Where a repository stands against its window. Closing the window does not
-// declare success — a workflow still red or never run when the window closes is
-// exactly the thing worth surfacing.
-function onboardingStatus(state, closesAt, counts, now) {
+// Where a repository stands against its window, as of `now`:
+//
+//   in-progress  — window open, not every workflow green yet (or none found yet:
+//                  converting pipelines is often what the window is spent on)
+//   complete     — every workflow green, inside the window. Decided the moment
+//                  it happens rather than when the window closes, so a quick
+//                  recovery is not hidden as "onboarding" for weeks.
+//   late         — every workflow green, but only after the window closed
+//   incomplete   — window closed with a workflow still failing or never run
+//   no-workflows — window closed with nothing to run, so nothing to onboard
+//
+// A green repository whose success predates dating cannot be placed either
+// side of its window, and counts as complete rather than as a miss.
+function onboardingStatus({ state, closesAt, counts, now, backOnline }) {
   if (state !== "SUCCEEDED" || !counts || closesAt === Infinity) return null;
-  if (now < closesAt) return "in-progress";
-  return counts.failing > 0 || counts.idle > 0 ? "incomplete" : "complete";
+  const scored = counts.succeeded + counts.failing + counts.idle;
+  const open = now < closesAt;
+  if (scored === 0) return open ? "in-progress" : "no-workflows";
+  if (counts.failing === 0 && counts.idle === 0) {
+    return backOnline && Date.parse(backOnline) > closesAt ? "late" : "complete";
+  }
+  return open ? "in-progress" : "incomplete";
 }
 
 // Fractional days, so a repository green the same afternoon is not rounded to
@@ -204,7 +219,7 @@ function buildRows(migrations, repos, { windowMs = Infinity, now = Date.now(), d
       backOnlineAt: backOnline,
       daysToGreen,
       daysToFirstGreen,
-      onboarding: onboardingStatus(state, closesAt, counts, now),
+      onboarding: onboardingStatus({ state, closesAt, counts, now, backOnline }),
     });
 
     // Only carried by the few rows that moved, so the payload does not grow a
@@ -266,7 +281,7 @@ function buildSummary(allRows, organizations) {
   const byTeam = new Map();
   const byOrg = new Map();
   const workflows = { succeeded: 0, failing: 0, idle: 0, failingRepos: 0, manual: 0, postOnboarding: 0 };
-  const onboarding = { inProgress: 0, complete: 0, incomplete: 0 };
+  const onboarding = { inProgress: 0, complete: 0, late: 0, incomplete: 0, noWorkflows: 0 };
 
   for (const row of rows) {
     if (row.state === "SUCCEEDED") kpis.succeeded += 1;
@@ -276,7 +291,9 @@ function buildSummary(allRows, organizations) {
 
     if (row.onboarding === "in-progress") onboarding.inProgress += 1;
     else if (row.onboarding === "complete") onboarding.complete += 1;
+    else if (row.onboarding === "late") onboarding.late += 1;
     else if (row.onboarding === "incomplete") onboarding.incomplete += 1;
+    else if (row.onboarding === "no-workflows") onboarding.noWorkflows += 1;
 
     warnings.push(row.warningsCount ?? 0);
     if (typeof row.durationMinutes === "number") durations.push(row.durationMinutes);

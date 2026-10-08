@@ -332,10 +332,12 @@ td .label, td .counter-sm { margin-left: 8px; vertical-align: middle; }
   position: relative;
   display: inline-flex;
   align-items: center;
+  min-width: 0;
 }
 .input-icon .octicon { position: absolute; left: 10px; pointer-events: none; }
 .input-icon input {
   width: 320px;
+  max-width: 100%;
   height: 32px;
   padding: 0 12px 0 32px;
   font-family: inherit;
@@ -362,7 +364,11 @@ td .label, td .counter-sm { margin-left: 8px; vertical-align: middle; }
   border-bottom: 1px solid var(--border-muted);
 }
 
-.underline-nav { display: flex; gap: 8px; }
+/* On a narrow screen the tabs scroll on their own rather than widening the
+   whole page; the scrollbar is hidden because the cut-off tab shows there is more. */
+.underline-nav { display: flex; gap: 8px; max-width: 100%; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.underline-nav::-webkit-scrollbar { display: none; }
+.underline-nav-item { flex-shrink: 0; white-space: nowrap; }
 
 .underline-nav-item {
   position: relative;
@@ -504,6 +510,9 @@ td .label, td .counter-sm { margin-left: 8px; vertical-align: middle; }
   margin-bottom: 28px;
 }
 .charts-full { grid-template-columns: 1fr; }
+/* A grid item will not shrink below its content by default, so one wide table
+   would push its card, and the page, past the screen edge. */
+.charts > * { min-width: 0; }
 .chart-card-wide { grid-column: 1 / -1; }
 /* Consecutive rows inside one section read as one block, not as two groups. */
 .charts + .charts { margin-top: -12px; }
@@ -534,6 +543,135 @@ td .label, td .counter-sm { margin-left: 8px; vertical-align: middle; }
 .chart-head > :first-child { flex: 1 1 0; min-width: 0; }
 .chart-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .chart-empty { padding: 48px 0; font-size: 13px; color: var(--fg-muted); text-align: center; }
+
+/* Onboarding: the opening paragraph that says what the charts add up to. */
+.onboarding-summary {
+  margin: 0 0 12px;
+  padding: 14px 16px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--fg-default);
+  background: var(--canvas-default);
+  border: 1px solid var(--border-default);
+  border-left: 3px solid var(--accent-fg);
+  border-radius: var(--radius);
+}
+.onboarding-summary strong { color: var(--fg-emphasis); font-variant-numeric: tabular-nums; }
+
+/* Each section answers one question, numbered so the page reads in order. */
+.onboarding-section { margin: 24px 0 0; }
+.onboarding-section > .chart-card + .disclosure { margin-top: 8px; }
+.onboarding-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg-emphasis);
+}
+.onboarding-section-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  border: 1px solid var(--border-default);
+  border-radius: 50%;
+}
+.onboarding-section .charts { margin-bottom: 0; }
+
+/* Where things stand: the rate, then the one bar it is read from. */
+.onboarding-rate { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 12px; }
+.onboarding-rate-value { font-size: 32px; font-weight: 600; line-height: 1.1; color: var(--success-fg); font-variant-numeric: tabular-nums; }
+.onboarding-rate-label { font-size: 13px; color: var(--fg-muted); }
+.onboarding-rate-label strong { color: var(--fg-default); }
+.status-bar { display: flex; gap: 6px; height: 22px; }
+.status-bar-group { display: flex; gap: 1px; min-width: 6px; overflow: hidden; border-radius: 4px; }
+.status-bar-segment { min-width: 2px; }
+.status-legend { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px 40px; margin-top: 14px; }
+.status-legend-group { display: grid; grid-template-columns: max-content 1fr max-content; align-content: start; gap: 4px 8px; align-items: center; min-width: 200px; }
+.status-legend-head { grid-column: 1 / -1; font-size: 12px; font-weight: 600; color: var(--fg-default); }
+.status-legend-total { margin-left: 4px; font-weight: 400; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.status-legend-item { display: contents; font-size: 13px; }
+.status-swatch { width: 10px; height: 10px; border-radius: 2px; }
+.status-legend-label { color: var(--fg-muted); }
+.status-legend-value { justify-self: end; font-weight: 600; color: var(--fg-default); font-variant-numeric: tabular-nums; }
+
+/* How long it takes: the figures the line is annotated with, as chips. */
+.figure-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 4px; }
+.figure-chip {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--canvas-subtle);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius);
+}
+.figure-chip-value { font-size: 16px; font-weight: 600; color: var(--fg-emphasis); font-variant-numeric: tabular-nums; }
+.figure-chip-label { font-size: 12px; color: var(--fg-muted); }
+
+/* Detail that most readers will not need, one click away. */
+.disclosure { border: 1px solid var(--border-default); border-radius: var(--radius); background: var(--canvas-default); }
+.disclosure > summary { padding: 8px 12px; font-size: 13px; color: var(--fg-muted); cursor: pointer; }
+.disclosure > summary:hover { color: var(--fg-default); }
+.disclosure[open] > summary { border-bottom: 1px solid var(--border-muted); }
+.period-table-bare { padding: 8px 16px 12px; }
+
+/* Onboarding: what the numbers mean, set where the numbers are. */
+.explainer {
+  margin: 0 0 16px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius);
+  background: var(--canvas-subtle);
+  font-size: 13px;
+}
+.explainer > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  color: var(--fg-default);
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.explainer > summary::-webkit-details-marker { display: none; }
+.explainer > summary::after { content: "Show"; margin-left: auto; font-weight: 400; font-size: 12px; color: var(--fg-muted); }
+.explainer[open] > summary::after { content: "Hide"; }
+.explainer[open] > summary { border-bottom: 1px solid var(--border-muted); }
+.explainer-body { padding: 12px 16px 4px; }
+.explainer-body dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 24px; margin: 0; }
+.explainer-body dt { font-weight: 600; color: var(--fg-default); }
+.explainer-body dd { margin: 0 0 8px; color: var(--fg-muted); line-height: 1.5; }
+.explainer-body dd strong, .explainer-body dd em { color: var(--fg-default); }
+.explainer-body ul { margin: 0; padding-left: 18px; }
+.explainer-body li + li { margin-top: 2px; }
+@media (max-width: 720px) {
+  .explainer-body dl { grid-template-columns: 1fr; gap: 2px; }
+}
+
+
+.period-table-wrap { overflow-x: auto; }
+/* Sized to its content, so two periods sit beside their labels rather than
+   across a gap the width of the page. */
+.period-table { width: auto; min-width: min(100%, 560px); border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.period-table th:first-child { padding-right: 32px; }
+.period-table th, .period-table td { padding: 8px 12px; border-bottom: 1px solid var(--border-muted); text-align: right; white-space: nowrap; }
+.period-table thead th { vertical-align: bottom; font-weight: 600; color: var(--fg-default); }
+.period-table th:first-child { text-align: left; font-weight: 400; color: var(--fg-muted); }
+.period-table thead th:first-child { font-weight: 600; }
+.period-table tbody tr:last-child th, .period-table tbody tr:last-child td { border-bottom: 0; }
+.period-name { display: block; }
+.period-range { display: block; font-size: 11px; font-weight: 400; color: var(--fg-muted); }
+.period-value { color: var(--fg-emphasis); font-weight: 600; }
+.period-change { display: inline-flex; align-items: center; gap: 2px; margin-left: 8px; min-width: 56px; justify-content: flex-end; font-size: 12px; color: var(--fg-subtle); }
+.period-change.is-better { color: var(--success-fg); }
+.period-change.is-worse { color: var(--danger-fg); }
 
 /* Category names on a bar chart's axis select the whole bar. */
 .axis-category { cursor: pointer; }
@@ -587,13 +725,15 @@ td .label, td .counter-sm { margin-left: 8px; vertical-align: middle; }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* The title and the tools share a line while they fit, and stack when not. */
+  flex-wrap: wrap;
   gap: 12px;
   padding: 12px 16px;
   background: var(--canvas-subtle);
   border-bottom: 1px solid var(--border-default);
   border-radius: var(--radius) var(--radius) 0 0;
 }
-.table-tools { display: flex; align-items: center; gap: 8px; }
+.table-tools { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
 .table-subcount { font-weight: 400; font-size: 12px; color: var(--fg-muted); }
 
 .table-scroll {

@@ -104,13 +104,26 @@ function orgBreakdown(migrations) {
 
 // Where each repository stands against its onboarding window. Repositories the
 // window does not apply to (failed, deleted, or window disabled) count nowhere.
-function onboardingBreakdown(migrations) {
-  const totals = { inProgress: 0, complete: 0, incomplete: 0 };
+//
+// `settled` and `onTimeSettled` give the on-time rate its denominator: only
+// windows that have closed. A repository green inside an open window is already
+// on time, but counting it before its slower neighbours are decided would let
+// the fastest repositories of every new cohort flatter the rate.
+function onboardingBreakdown(migrations, { windowDays = 0, nowMs = Date.now() } = {}) {
+  const totals = { inProgress: 0, complete: 0, late: 0, incomplete: 0, noWorkflows: 0, onTimeSettled: 0 };
+  const windowMs = windowDays * 24 * 60 * 60 * 1000;
   for (const m of migrations) {
     if (m.onboarding === "in-progress") totals.inProgress += 1;
-    else if (m.onboarding === "complete") totals.complete += 1;
+    else if (m.onboarding === "complete") {
+      totals.complete += 1;
+      const migrated = Date.parse(m.migratedAt ?? m.createdAt ?? "");
+      if (windowMs > 0 && Number.isFinite(migrated) && migrated + windowMs <= nowMs) totals.onTimeSettled += 1;
+    } else if (m.onboarding === "late") totals.late += 1;
     else if (m.onboarding === "incomplete") totals.incomplete += 1;
+    else if (m.onboarding === "no-workflows") totals.noWorkflows += 1;
   }
+  totals.settled = totals.onTimeSettled + totals.late + totals.incomplete;
+  totals.onTimeRate = totals.settled ? totals.onTimeSettled / totals.settled : null;
   return totals;
 }
 

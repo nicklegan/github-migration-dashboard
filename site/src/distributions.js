@@ -40,9 +40,11 @@ const DURATION_BUCKETS = [
 ];
 
 const ONBOARDING_LABELS = {
-  "in-progress": "Onboarding",
-  complete: "Onboarded",
+  "in-progress": "Still onboarding",
+  complete: "On time",
+  late: "Late",
   incomplete: "Not onboarded",
+  "no-workflows": "No workflows",
 };
 
 function bucketLabel(value, buckets) {
@@ -58,6 +60,13 @@ const warningBucketOf = (row) => bucketLabel(row?.warningsCount ?? 0, WARNING_BU
 const durationBucketOf = (row) => bucketLabel(row?.durationMinutes, DURATION_BUCKETS);
 const onboardingLabelOf = (row) => ONBOARDING_LABELS[row?.onboarding] ?? null;
 const platformLabelOf = (row) => platformOf(row) ?? UNKNOWN;
+
+// Whether the team property is actually in use: set on at least one repository.
+// Read from the summary's team breakdown, which is there before the rows have
+// streamed in, so charts that draw from the summary pick the same default as
+// charts that wait for rows. A property that is configured but never filled in
+// leaves every repository Unassigned, and grouping by it would show one bar.
+const usesTeams = (teams) => (teams ?? []).some((team) => team?.key && team.key !== "Unassigned");
 
 // Counts rows into their bucket, keeping the buckets' own order — a
 // distribution read out of order is not a distribution. Buckets nothing fell
@@ -135,7 +144,9 @@ function onboardingGroupBreakdown(migrations, keyName, keyOf) {
     (row) => ({
       inProgress: row.onboarding === "in-progress" ? 1 : 0,
       complete: row.onboarding === "complete" ? 1 : 0,
+      late: row.onboarding === "late" ? 1 : 0,
       incomplete: row.onboarding === "incomplete" ? 1 : 0,
+      noWorkflows: row.onboarding === "no-workflows" ? 1 : 0,
     }),
   );
 }
@@ -183,6 +194,7 @@ function sizeDurationSeries(migrations) {
 }
 
 export {
+  usesTeams,
   attemptBreakdown,
   warningBreakdown,
   durationBreakdown,

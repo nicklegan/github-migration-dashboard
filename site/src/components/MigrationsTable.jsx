@@ -234,6 +234,11 @@ export default function MigrationsTable({ repositories, teamLabel = "Team", serv
                             not onboarded
                           </span>
                         )}
+                        {row.onboarding === "late" && (
+                          <span className="label" title="Every workflow passed, but only after the onboarding window closed">
+                            onboarded late
+                          </span>
+                        )}
                         {/* Provenance last: the badges before it are what needs acting on. */}
                         <MovedLabel row={row} />
                       </td>

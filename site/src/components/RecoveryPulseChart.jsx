@@ -23,8 +23,12 @@ export default function RecoveryPulseChart({ title, subtitle, rows, range, nowMs
     useChartTheme();
 
   const { data, empty } = useMemo(() => {
-    const plan = timelinePlan(range, rows, nowMs);
-    if (!plan) return { data: [], empty: true };
+    const planned = timelinePlan(range, rows, nowMs);
+    if (!planned) return { data: [], empty: true };
+    // The plan runs one bucket past the newest migration, which here is a week
+    // that has not happened yet: an empty bar and a recovery line diving to
+    // zero, read as a collapse. Nothing can arrive or recover after the sync.
+    const plan = Number.isFinite(nowMs) ? { ...planned, end: Math.min(planned.end, nowMs) } : planned;
     const series = recoveryPulse(rows, plan);
     return {
       data: series.map((point) => ({ ...point, label: formatBucket(point.at, plan) })),
@@ -68,16 +72,17 @@ export default function RecoveryPulseChart({ title, subtitle, rows, range, nowMs
               iconType="circle"
               iconSize={8}
               {...legendProps}
+              formatter={(value) => legendProps.formatter?.(value, null, false) ?? value}
               payload={[
                 { value: "Migrated", type: "circle", color: NEUTRAL, id: "migrated" },
-                { value: "Back online", type: "circle", color: SUCCESS, id: "backOnline" },
+                { value: "Became fully green", type: "circle", color: SUCCESS, id: "backOnline" },
               ]}
             />
             <Bar dataKey="migrated" name="Migrated" fill={NEUTRAL} isAnimationActive={false} />
             <Line
               type="monotone"
               dataKey="backOnline"
-              name="Back online"
+              name="Became fully green"
               stroke={SUCCESS}
               strokeWidth={2}
               dot={false}
@@ -87,8 +92,8 @@ export default function RecoveryPulseChart({ title, subtitle, rows, range, nowMs
         </ResponsiveContainer>
       )}
       <p className="chart-footnote">
-        Recoveries are dated when the repository's last workflow first passed, so they land after
-        the migration that produced them — often well after.
+        A repository counts as fully green on the day its last workflow first passed, so it lands
+        after the migration that produced it — often well after.
       </p>
     </div>
   );

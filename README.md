@@ -22,16 +22,17 @@ whether they have run successfully since the move.
 | Tab                   | What it shows                                                                      |
 | :-------------------- | :--------------------------------------------------------------------------------- |
 | **Overview**          | KPI cards, breakdowns by organization, team, or source platform, and distributions |
-| **Onboarding**        | How long migrated repositories take to get running again, against their window     |
+| **Onboarding**        | How long repositories take to get every workflow green, and whether that improves  |
 | **Repositories**      | One row per target repository; expand to see every attempt                         |
 | **Actions workflows** | One row per repository; expand to see each workflow and its status                 |
 
-Every chart is a filter: click a bar segment, a donut slice, or a legend entry to
-select it, click again to clear. Selections accumulate and every other chart, the
-KPI cards, and the tables follow. Bar charts show the ten largest categories and
-roll the rest into **Other**.
+Every breakdown chart is a filter: click a bar segment, a donut slice, or a
+legend entry to select it, click again to clear. Selections accumulate and every
+other chart, the KPI cards, and the tables follow. Bar charts show the ten
+largest categories and roll the rest into **Other**. Timelines and the
+onboarding curve and trend are views, not filters.
 
-![A walkthrough of the dashboard: the overview's breakdowns with a chart filtering everything else, the onboarding tab's time-to-onboard bars and recovery curve, a repository's migration attempts unfolding, and a repository's Actions workflows with their status](docs/dashboard.gif)
+![A walkthrough of the dashboard: the overview's breakdowns with a chart filtering everything else; the onboarding tab's summary, status bar, days-to-fully-green curve, trend by week and month, and where to act by team; a repository's migration attempts unfolding; and a repository's Actions workflows with their status](docs/dashboard.gif)
 
 ## Usage
 
@@ -199,6 +200,11 @@ dropped, so the breakdown always totals the whole estate. Changing
 `team-property` re-reads every repository on the next run. The name is matched
 regardless of case, and a multi-select property joins its values with commas.
 
+Once any repository has the property set, the charts about ownership open
+grouped by it rather than by organization: **Migrations** and **Workflow
+health** on the Overview, and **Where to act** on the Onboarding tab. The other
+groupings stay one click away.
+
 ## Onboarding window
 
 Actions workflows rarely arrive with the repository — some land the same day,
@@ -207,18 +213,65 @@ part of the migration. A workflow first seen inside the window is migration
 scope; one first seen after it is badged `Added later` and does not move
 migration metrics.
 
+Every repository is measured against **its own** window, which starts at its
+first successful migration. It is not a calendar range, so the dashboard's time
+filter does not apply to the Onboarding tab. A repository is **fully green**
+once every workflow it is scored on has passed at least once. Statuses are a
+snapshot as of the last sync:
+
+| Status               | Meaning                                                                                      |
+| :------------------- | :------------------------------------------------------------------------------------------- |
+| **On time**          | Fully green inside the window. Counted as soon as it happens, even while the window is open. |
+| **Late**             | Fully green, but only after the window closed.                                               |
+| **Not onboarded**    | Window closed with a scored workflow still failing or never run.                             |
+| **Still onboarding** | Window open, and not every scored workflow has passed yet (or none has been found yet).      |
+| **No workflows**     | Window closed with nothing to run. Left out of every rate.                                   |
+
 Closing the window does not declare success. A repository whose window closed
 with a workflow still failing or never run is badged **not onboarded**
 — that list is the point of the window, not a pass mark.
 
-### Getting back online
+The **on-time rate** is on time ÷ repositories whose window has closed.
+Repositories still inside their window are left out until they are decided, so
+the fastest repositories of a new batch cannot flatter it.
 
-A repository is **back online** when every workflow it is scored on has passed at
-least once — the rule that badges it onboarded, now dated, so the **Onboarding**
-tab can chart how long it took. The curve stacks onboarded, part-way there, and
-nothing running, so the three bands come to the whole population. A repository
-with nothing scored has no recovery to chart and is left out; so is one whose
-success predates these dates being recorded.
+### Reading the Onboarding tab
+
+The tab opens with a short summary in plain sentences — how many made it in
+time, how long half of them take against the window, and whether the latest
+period is better or worse than the one before — followed by five numbered
+sections, each answering one question:
+
+1. **Where things stand** — the on-time rate, and one bar of every repository
+   split by whether its window has closed, so the rate is visibly the on-time
+   share of the closed group.
+2. **How long it takes** — the share of repositories fully green at each day
+   after their own migration, marked at a week and 30 days, with the day by
+   which half are fully green.
+3. **Is it getting better?** — of the repositories migrated in each week (or
+   month, or quarter), the share fully green within a week, 30 days, and the
+   window. The first week is known soonest, so a change in tooling shows there
+   first. **Compare periods side by side** opens the same figures as a table.
+4. **Where to act** — status and median days to fully green per team,
+   organization, or source. Selecting a bar filters the dashboard.
+5. **Keeping up** — repositories migrated against repositories becoming fully
+   green, per period.
+
+A repository counts towards "fully green within N days" only once it has had N
+days, so a recent batch is never counted as failing for days it has not
+reached. A figure is drawn only once at least five repositories qualify and,
+when periods are compared, at least half of the period has had that many days;
+periods still too young are shaded. A **How onboarding is measured** panel on
+the tab spells all of this out for the people reading the dashboard.
+
+### Dating when a repository became fully green
+
+The day a repository became fully green is the day its last scored workflow
+first passed, so the **Onboarding** tab can chart how long it took and tell on
+time from late. The **How long it takes** curve stacks every workflow green,
+some workflows green, and no workflow green yet, so the three bands come to the
+whole population. A repository with nothing scored has nothing to chart and is
+left out; so is one whose success predates these dates being recorded.
 
 An estate migrated before this existed is dated by a one-time back-fill: two
 requests per already-succeeded workflow, spread across runs and resumable. Until
