@@ -38,7 +38,12 @@ function recoveryCurve(rows, { windowDays, nowMs = Date.now(), points = 40, extr
   const step = windowDays / Math.max(1, points);
 
   const days = [];
-  for (let day = 0; day <= windowDays + 1e-9; day += step) days.push(day);
+  // Multiplied rather than accumulated, and ending on the window itself, so the
+  // last point is the window day exactly: the chart marks it, and a step that
+  // drifted to 59.9999 would leave the mark with nothing to sit on.
+  const count = Math.max(1, points);
+  for (let i = 0; i < count; i += 1) days.push(i * step);
+  days.push(windowDays);
   for (const day of extraDays) if (day > 0 && day < windowDays) days.push(day);
   days.sort((a, b) => a - b);
 
@@ -403,31 +408,43 @@ const shortDate = (ms) => {
 };
 
 // Most periods a comparison shows side by side before the oldest are folded
-// together. Past four the table stops reading as "then versus now".
-const MAX_PERIODS = 4;
+// into one "Earlier" column: enough for weeks to show a run, few enough that the
+// table still reads as "then versus now".
+const MAX_PERIODS = 6;
 
-// The periods the comparison sets side by side: calendar quarters, or months
-// for an estate too young to have two quarters. The oldest fold into "Earlier".
-function onboardingPeriods(rows) {
+const LONG_MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+// How a period reads inside a sentence. Months are spelled out there, where
+// "in July 2026" reads better than the table's "Jul 2026".
+function periodPhrase(start, granularity) {
+  if (granularity === "week") return `in the week of ${bucketLabel(start, granularity)}`;
+  if (granularity === "month") {
+    const d = new Date(start);
+    return `in ${LONG_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  }
+  return `in ${bucketLabel(start, granularity)}`;
+}
+
+// The periods to compare, one per week, month, or quarter of migration that has
+// any repositories in it. Without a granularity, calendar quarters, or months
+// for an estate too young to have two quarters.
+function onboardingPeriods(rows, { granularity } = {}) {
   const population = rows.filter((row) => eligible(row) && Number.isFinite(migratedMs(row)));
   if (population.length === 0) return [];
 
-  for (const granularity of ["quarter", "month"]) {
-    const starts = [...new Set(population.map((row) => bucketStart(migratedMs(row), granularity)))].sort(
-      (a, b) => a - b,
-    );
-    if (starts.length < 2 && granularity !== "month") continue;
-    let periods = starts.map((start) => ({
+  for (const unit of granularity ? [granularity] : ["quarter", "month"]) {
+    const starts = [...new Set(population.map((row) => bucketStart(migratedMs(row), unit)))].sort((a, b) => a - b);
+    if (!granularity && starts.length < 2 && unit !== "month") continue;
+    const periods = starts.map((start) => ({
       key: String(start),
-      label: bucketLabel(start, granularity),
-      phrase: `in ${bucketLabel(start, granularity)}`,
+      label: bucketLabel(start, unit),
+      phrase: periodPhrase(start, unit),
       from: start,
-      to: nextBucket(start, granularity),
+      to: nextBucket(start, unit),
     }));
-    if (periods.length > MAX_PERIODS) {
-      const kept = periods.slice(-(MAX_PERIODS - 1));
-      periods = [{ key: "earlier", label: "Earlier", phrase: "earlier", from: -Infinity, to: kept[0].from }, ...kept];
-    }
     return withRows(periods, population).filter((p) => p.rows.length > 0);
   }
   return [];
@@ -439,28 +456,68 @@ function withRows(periods, population) {
       const at = migratedMs(row);
       return at >= period.from && at < period.to;
     });
-    let first = Infinity;
-    let last = -Infinity;
-    for (const row of rows) {
-      const at = migratedMs(row);
-      if (at < first) first = at;
-      if (at > last) last = at;
-    }
-    return {
-      ...period,
-      rows,
-      range: rows.length ? `${shortDate(first)} – ${shortDate(last)}` : "",
-    };
+    return { ...period, rows, range: rangeOf(rows) };
   });
 }
 
-// Each period's figures, ready for the comparison table and the trend tiles.
-function comparePeriods(rows, { nowMs = Date.now(), windowDays } = {}) {
+function rangeOf(rows) {
+  let first = Infinity;
+  let last = -Infinity;
+  for (const row of rows) {
+    const at = migratedMs(row);
+    if (at < first) first = at;
+    if (at > last) last = at;
+  }
+  if (!rows.length) return "";
+  // The year once when both ends share it: a week of columns is narrow enough
+  // to fit the card that way.
+  const sameYear = new Date(first).getUTCFullYear() === new Date(last).getUTCFullYear();
+  return `${sameYear ? shortDate(first).replace(/, \d{4}$/, "") : shortDate(first)} – ${shortDate(last)}`;
+}
+
+// Whether a period has any figure to compare yet. A median floor ("more than
+// N days") does not count: on its own it only says the period is young.
+function hasFigure(period) {
+  return (
+    period.median?.days != null ||
+    period.onTime != null ||
+    Object.values(period.by ?? {}).some((value) => value != null)
+  );
+}
+
+// Each period's figures, for the comparison table and the summary.
+//
+// The newest periods with nothing measured yet are dropped, as on the trend
+// chart. Only then are the oldest folded into "Earlier": folding first would
+// keep the newest, mostly empty, columns and fold away the ones with figures.
+function comparePeriods(rows, { granularity, nowMs = Date.now(), windowDays, maxPeriods = MAX_PERIODS } = {}) {
   const checkpoints = checkpointsFor(windowDays);
-  return onboardingPeriods(rows).map(({ rows: periodRows, ...period }) => ({
-    ...period,
-    ...onboardingStats(periodRows, { nowMs, windowDays, checkpoints, minShare: COMPARABLE_SHARE }),
-  }));
+  const statsOf = (periodRows) =>
+    onboardingStats(periodRows, { nowMs, windowDays, checkpoints, minShare: COMPARABLE_SHARE });
+
+  let periods = onboardingPeriods(rows, { granularity }).map((period) => ({ ...period, ...statsOf(period.rows) }));
+  let end = periods.length;
+  while (end > 0 && !hasFigure(periods[end - 1])) end -= 1;
+  periods = periods.slice(0, end);
+
+  if (periods.length > maxPeriods) {
+    const folded = periods.slice(0, periods.length - (maxPeriods - 1));
+    const earlierRows = folded.flatMap((period) => period.rows);
+    periods = [
+      {
+        key: "earlier",
+        label: "Earlier",
+        phrase: "earlier",
+        from: -Infinity,
+        to: periods[folded.length].from,
+        rows: earlierRows,
+        range: rangeOf(earlierRows),
+        ...statsOf(earlierRows),
+      },
+      ...periods.slice(folded.length),
+    ];
+  }
+  return periods.map(({ rows: _rows, ...period }) => period);
 }
 
 // The latest period with a figure for `pick`, against the one before it that

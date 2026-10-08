@@ -79,6 +79,8 @@ function workflowTimelineCounts(row) {
 // The states a migration can be in against its window. One set of words for
 // them everywhere on the tab — cards, curve, breakdown, and the explainer — so
 // nothing has to be translated between charts.
+const GRANULARITY_NOUNS = { week: "weeks", month: "months", quarter: "quarters" };
+
 const ONBOARDING_SERIES = (green, red, amber, late, gray) => [
   { key: "complete", name: "On time", color: green, filterValue: "On time" },
   { key: "late", name: "Late", color: late, filterValue: "Late" },
@@ -100,6 +102,10 @@ export default function App() {
   // Null until the reader picks one, so the default can depend on data that has
   // not loaded yet rather than being fixed before the summary arrives.
   const [tab, setTab] = useState(null);
+  // The onboarding trend's grouping, shared by its chart and the table under
+  // it so both always compare the same periods. Weekly first: the finest view,
+  // where a change in tooling shows soonest.
+  const [trendGranularity, setTrendGranularity] = useState("week");
 
   useEffect(() => {
     loadSummary().then(setSummary).catch((err) => setError(err.message));
@@ -195,14 +201,15 @@ export default function App() {
         ...onboardingBreakdown(scopeFor(), { windowDays: onboardingWindow, nowMs }),
         ...workflowTotals(scopeFor()),
       },
-      // How fast repositories get green overall, and quarter by quarter, for
-      // the "is it getting better?" tiles and table.
+      // How fast repositories get green overall, and month by month for the
+      // summary's "compared with" sentence: a month is recent enough to show a
+      // change, and holds enough repositories to measure where a week would not.
       onboardingOverall: onboardingStats(scopeFor(), {
         nowMs,
         windowDays: onboardingWindow,
         checkpoints: checkpointsFor(onboardingWindow),
       }),
-      onboardingPeriods: comparePeriods(scopeFor(), { nowMs, windowDays: onboardingWindow }),
+      onboardingPeriods: comparePeriods(scopeFor(), { granularity: "month", nowMs, windowDays: onboardingWindow }),
       repoState: stateBreakdown(byState)
         .filter((s) => s.state === "SUCCEEDED" || s.state === "FAILED" || s.state === "SUPERSEDED")
         .map((s) => ({ name: s.state, value: s.count, color: stateColors[s.state] || GRAY })),
@@ -257,6 +264,20 @@ export default function App() {
       ],
     };
   }, [data, summary, range, nowMs, filters, showRemoved, stateColors, GREEN, RED, GRAY, categorical]);
+
+  // Kept out of `views` so switching the grouping recomputes only this table,
+  // not every chart on the dashboard.
+  const trendPeriods = useMemo(
+    () =>
+      views
+        ? comparePeriods(views.onboardingRows, {
+            granularity: trendGranularity,
+            nowMs,
+            windowDays: summary?.onboardingWindowDays ?? 0,
+          })
+        : [],
+    [views, trendGranularity, nowMs, summary],
+  );
 
   if (error) return <main className="app"><p className="error">{error}</p></main>;
   if (!summary) {
@@ -591,10 +612,12 @@ export default function App() {
                   rows={views.onboardingRows}
                   windowDays={windowDays}
                   nowMs={nowMs}
+                  granularity={trendGranularity}
+                  onGranularityChange={setTrendGranularity}
                 />
                 <details className="disclosure">
-                  <summary>Compare periods side by side</summary>
-                  <OnboardingPeriodTable periods={views.onboardingPeriods} windowDays={windowDays} />
+                  <summary>Compare {GRANULARITY_NOUNS[trendGranularity]} side by side</summary>
+                  <OnboardingPeriodTable periods={trendPeriods} windowDays={windowDays} />
                 </details>
               </section>
 

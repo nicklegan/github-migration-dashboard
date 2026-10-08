@@ -70,6 +70,14 @@ export default function OnboardingExplainer({ windowDays, generatedAt }) {
             which half of the repositories were fully green.
           </dd>
 
+          <dt>Periods</dt>
+          <dd>
+            The summary compares repositories migrated in the latest month with those migrated the
+            month before. The trend chart and the table beneath it follow the week, month, or quarter
+            you choose; the table shows up to six periods and combines older ones into{" "}
+            <em>Earlier</em>.
+          </dd>
+
           <dt>As of</dt>
           <dd>
             A snapshot from the last sync{generatedAt ? ` (${dateTime(generatedAt)})` : ""}, not a

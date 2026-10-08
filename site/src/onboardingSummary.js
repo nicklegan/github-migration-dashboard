@@ -118,9 +118,10 @@ function compared(previousPeriod, currentPeriod, clauses) {
   return parts;
 }
 
-// Is it getting better: the latest period against the one before, on the
-// median and on the first week — the first week because it is known within
-// days of migrating, so a change in tooling shows there first.
+// Is it getting better: the latest period (the caller passes months) against
+// the one before, on the median and on the first week — the first week because
+// it is known within days of migrating, so a change in tooling shows there
+// first.
 function trendSentences(periods) {
   const firstDay = Object.keys(periods[0]?.by ?? {}).map(Number)[0];
   const speed = change(periods, (p) => p.median?.days);

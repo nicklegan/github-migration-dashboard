@@ -97,6 +97,7 @@ export default function OnboardingPeriodTable({ title, subtitle, periods, window
       <p className="chart-footnote">
         Repositories grouped by when they migrated, each column compared with the one before it. A
         dash means too few repositories in that period have had that many days yet.
+        {periods[0]?.key === "earlier" && " Earlier combines the older periods into one group."}
       </p>
     </div>
   );

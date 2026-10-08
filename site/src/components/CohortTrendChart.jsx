@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   ComposedChart,
   Line,
@@ -26,11 +26,11 @@ const percent = (value) => `${Math.round(value * 100)}%`;
 // window. Each group is still measured on its own repositories' clocks (see
 // recovery.js), so the newest are not penalised for being new; the ones too
 // young to have reached a day are shaded rather than left blank.
-export default function CohortTrendChart({ title, subtitle, rows, windowDays, nowMs }) {
+// The grouping is held by the caller, so the comparison table under the chart
+// can follow it.
+export default function CohortTrendChart({ title, subtitle, rows, windowDays, nowMs, granularity, onGranularityChange }) {
   const { tooltipProps, legendProps, AXIS_TICK, AXIS_LINE, GRID, CURSOR, NEUTRAL, categorical, SUCCESS } =
     useChartTheme();
-  // Weekly by default: the finest view, where a change in tooling shows first.
-  const [granularity, setGranularity] = useState("week");
 
   const { points: allPoints, checkpoints } = useMemo(
     () => cohortTrend(rows, { granularity, nowMs, windowDays }),
@@ -93,7 +93,7 @@ export default function CohortTrendChart({ title, subtitle, rows, windowDays, no
                 type="button"
                 className={`segment${g.key === granularity ? " is-active" : ""}`}
                 aria-pressed={g.key === granularity}
-                onClick={() => setGranularity(g.key)}
+                onClick={() => onGranularityChange(g.key)}
               >
                 {g.label}
               </button>

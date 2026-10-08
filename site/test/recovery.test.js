@@ -55,6 +55,12 @@ test("a quoted day is on the curve exactly", () => {
   assert.ok(day7, "day 7 is evaluated");
   assert.equal(day7.allGreen, greenShareBy(rows, 7, { nowMs: NOW, minAtRisk: 3 }).share);
   assert.ok(points.find((p) => p.day === 30));
+  // The window day itself is a point, exactly, for awkward windows too.
+  for (const windowDays of [60, 75, 45, 90]) {
+    const old = [repo(200, { daysToGreen: 1 }), repo(200, { daysToGreen: 7 }), repo(200, { daysToGreen: 30 })];
+    const curve = recoveryCurve(old, { windowDays, nowMs: NOW, points: 40 }).points;
+    assert.equal(curve.at(-1).day, windowDays);
+  }
   assert.deepEqual(points.map((p) => p.day), [...points.map((p) => p.day)].sort((a, b) => a - b));
 });
 
@@ -482,15 +488,69 @@ test("weeks start on Monday", () => {
   assert.equal(points[0].label, "Mar 9, 2026");
 });
 
-test("the periods are quarters, the oldest folded into Earlier", () => {
+test("without a granularity the periods are quarters", () => {
   const at = (iso) => ({ ...repo(0), migratedAt: iso });
   const rows = ["2025-02-01", "2025-05-01", "2025-08-01", "2025-11-01", "2026-02-01"].map((d) => at(`${d}T00:00:00Z`));
-  const periods = onboardingPeriods(rows);
   assert.deepEqual(
-    periods.map((p) => p.label),
-    ["Earlier", "Q3 2025", "Q4 2025", "Q1 2026"],
+    onboardingPeriods(rows).map((p) => p.label),
+    ["Q1 2025", "Q2 2025", "Q3 2025", "Q4 2025", "Q1 2026"],
   );
-  assert.equal(periods[0].rows.length, 2);
+});
+
+test("periods follow the granularity asked for, phrased for a sentence", () => {
+  const at = (iso) => ({ ...repo(0), migratedAt: iso });
+  const rows = [at("2026-03-10T00:00:00Z"), at("2026-03-18T00:00:00Z"), at("2026-04-02T00:00:00Z")];
+  const weeks = onboardingPeriods(rows, { granularity: "week" });
+  assert.deepEqual(weeks.map((p) => p.label), ["Mar 9, 2026", "Mar 16, 2026", "Mar 30, 2026"]);
+  assert.equal(weeks[0].phrase, "in the week of Mar 9, 2026");
+  assert.deepEqual(onboardingPeriods(rows, { granularity: "month" }).map((p) => p.label), ["Mar 2026", "Apr 2026"]);
+  assert.equal(onboardingPeriods(rows, { granularity: "month" })[0].phrase, "in March 2026");
+  // Asked for quarters, one quarter is what it gets, rather than months.
+  assert.deepEqual(onboardingPeriods(rows, { granularity: "quarter" }).map((p) => p.label), ["Q1 2026", "Q2 2026"]);
+});
+
+test("a period's range names the year once, unless it spans two", () => {
+  const at = (iso) => ({ ...repo(0), migratedAt: iso });
+  const [week] = onboardingPeriods([at("2025-12-29T09:00:00Z"), at("2026-01-02T09:00:00Z")], { granularity: "week" });
+  assert.equal(week.range, "Dec 29, 2025 – Jan 2, 2026");
+  const [month] = onboardingPeriods([at("2026-03-02T09:00:00Z"), at("2026-03-30T09:00:00Z")], { granularity: "month" });
+  assert.equal(month.range, "Mar 2 – Mar 30, 2026");
+});
+
+test("the oldest periods fold into Earlier, measured as one", () => {
+  const at = (iso, opts) => ({ ...repo(0, opts), migratedAt: iso });
+  const quarter = (iso, daysToGreen) => Array.from({ length: 5 }, () => at(iso, { daysToGreen }));
+  const rows = [
+    ...quarter("2025-02-01T00:00:00Z", 10),
+    ...quarter("2025-05-01T00:00:00Z", 30),
+    ...quarter("2025-08-01T00:00:00Z", 5),
+    ...quarter("2025-11-01T00:00:00Z", 5),
+    ...quarter("2026-02-01T00:00:00Z", 5),
+  ];
+  const periods = comparePeriods(rows, { nowMs: NOW, windowDays: 60, maxPeriods: 4 });
+  assert.deepEqual(periods.map((p) => p.label), ["Earlier", "Q3 2025", "Q4 2025", "Q1 2026"]);
+  // The two folded quarters are one population of ten, so its median is
+  // theirs together, not either quarter's.
+  assert.equal(periods[0].repositories, 10);
+  assert.equal(periods[0].median.days, 10);
+  assert.equal(periods[0].range, "Feb 1 – May 1, 2025");
+});
+
+test("the newest periods with nothing measured are dropped before folding", () => {
+  const at = (iso, opts) => ({ ...repo(0, opts), migratedAt: iso });
+  const week = (iso, opts) => Array.from({ length: 5 }, () => at(iso, opts));
+  const rows = [
+    ...week("2026-04-06T00:00:00Z", { daysToGreen: 2 }),
+    ...week("2026-04-13T00:00:00Z", { daysToGreen: 2 }),
+    ...week("2026-04-20T00:00:00Z", { daysToGreen: 2 }),
+    // Days old: nothing to measure yet. Folding first would have kept these
+    // and folded the three above away.
+    ...week("2026-05-28T00:00:00Z"),
+    ...week("2026-05-30T00:00:00Z"),
+  ];
+  const periods = comparePeriods(rows, { granularity: "week", nowMs: NOW, windowDays: 60, maxPeriods: 2 });
+  assert.deepEqual(periods.map((p) => p.label), ["Earlier", "Apr 20, 2026"]);
+  assert.equal(periods[0].repositories, 10);
 });
 
 test("an estate inside one quarter is compared month by month", () => {
@@ -508,8 +568,8 @@ test("the latest change skips periods that cannot be measured yet", () => {
     ...Array.from({ length: 3 }, () => at("2026-05-31T00:00:00Z")),
   ];
   const periods = comparePeriods(rows, { nowMs: NOW, windowDays: 60 });
-  assert.deepEqual(periods.map((p) => p.label), ["Q4 2025", "Q1 2026", "Q2 2026"]);
-  assert.equal(periods[2].median, null);
+  // Q2 2026 has nothing to measure yet, so it is not a column at all.
+  assert.deepEqual(periods.map((p) => p.label), ["Q4 2025", "Q1 2026"]);
   assert.deepEqual(latestChange(periods, (p) => p.median?.days), {
     current: 5,
     previous: 20,

@@ -73,6 +73,7 @@ export default function RecoveryPulseChart({ title, subtitle, rows, range, nowMs
               iconSize={8}
               {...legendProps}
               formatter={(value) => legendProps.formatter?.(value, null, false) ?? value}
+              itemSorter={null}
               payload={[
                 { value: "Migrated", type: "circle", color: NEUTRAL, id: "migrated" },
                 { value: "Became fully green", type: "circle", color: SUCCESS, id: "backOnline" },

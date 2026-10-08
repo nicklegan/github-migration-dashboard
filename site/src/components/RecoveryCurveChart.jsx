@@ -45,9 +45,13 @@ export default function RecoveryCurveChart({ title, subtitle, rows, windowDays, 
   const dated = population + undated > 0 ? population / (population + undated) : 1;
   const tooFewDated = points.length > 0 && dated < 0.75;
 
-  const markers = checkpoints
+  // The days the summary quotes, then the window itself: what share was fully
+  // green by the time it closed.
+  const markers = [...checkpoints, ...(showWindow ? [windowDays] : [])]
     .map((day) => ({ day, point: points.find((p) => p.day === day) }))
     .filter((m) => m.point);
+  const within = (day) =>
+    day === windowDays ? `within the ${windowDays}-day window` : day === 7 ? "within a week" : `within ${day} days`;
   const median = overall?.median;
   const medianOnChart = median?.days != null && median.days <= reached;
 
@@ -64,7 +68,7 @@ export default function RecoveryCurveChart({ title, subtitle, rows, windowDays, 
           {markers.map(({ day, point }) => (
             <div key={day} className="figure-chip">
               <span className="figure-chip-value">{percent(point.allGreen)}</span>
-              <span className="figure-chip-label">fully green {day === 7 ? "within a week" : `within ${day} days`}</span>
+              <span className="figure-chip-label">fully green {within(day)}</span>
             </div>
           ))}
           {median && (median.days != null || median.over != null) && (
@@ -142,12 +146,17 @@ export default function RecoveryCurveChart({ title, subtitle, rows, windowDays, 
                 }}
               />
             )}
+            {/* Half fully green: a drop line from where the curve crosses 50% to
+                the day it does. Labelled at the dot rather than above the plot,
+                where it collided with the legend. */}
             {medianOnChart && (
               <ReferenceLine
-                x={median.days}
+                segment={[
+                  { x: median.days, y: 0 },
+                  { x: median.days, y: 0.5 },
+                ]}
                 stroke={LABEL}
                 strokeDasharray="2 3"
-                label={{ value: "half fully green", fill: LABEL, fontSize: 11, position: "insideTopLeft", dy: -18 }}
               />
             )}
             <Area
@@ -186,6 +195,9 @@ export default function RecoveryCurveChart({ title, subtitle, rows, windowDays, 
               dot={false}
               isAnimationActive={false}
             />
+            {/* At the window, the plot's right edge, the label is pulled in so it
+                is not clipped; near the top it goes below the dot, clear of the
+                window label above the plot. */}
             {markers.map(({ day, point }) => (
               <ReferenceDot
                 key={day}
@@ -195,9 +207,36 @@ export default function RecoveryCurveChart({ title, subtitle, rows, windowDays, 
                 fill={SUCCESS}
                 stroke={LABEL}
                 strokeWidth={1.5}
-                label={{ value: percent(point.allGreen), position: "top", fill: LABEL, fontSize: 12, fontWeight: 600 }}
+                label={{
+                  value: percent(point.allGreen),
+                  position: point.allGreen > 0.9 ? "bottom" : "top",
+                  fill: LABEL,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  dx: day === windowDays ? -12 : 0,
+                }}
               />
             ))}
+            {/* Labelled to the upper left: the curve rises through the dot from
+                below, so that space is clear. */}
+            {medianOnChart && (
+              <ReferenceDot
+                x={median.days}
+                y={0.5}
+                r={4}
+                fill={LABEL}
+                stroke={SUCCESS}
+                strokeWidth={1.5}
+                label={{
+                  value: `half · day ${Math.round(median.days)}`,
+                  position: "left",
+                  fill: LABEL,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  dy: -10,
+                }}
+              />
+            )}
           </AreaChart>
         </ResponsiveContainer>
       )}

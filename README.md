@@ -32,7 +32,7 @@ other chart, the KPI cards, and the tables follow. Bar charts show the ten
 largest categories and roll the rest into **Other**. Timelines and the
 onboarding curve and trend are views, not filters.
 
-![A walkthrough of the dashboard: the overview's breakdowns with a chart filtering everything else; the onboarding tab's summary, status bar, days-to-fully-green curve, trend by week and month, and where to act by team; a repository's migration attempts unfolding; and a repository's Actions workflows with their status](docs/dashboard.gif)
+![A walkthrough of the dashboard: the overview's breakdowns with a chart filtering everything else; the onboarding tab's summary, status bar, days-to-fully-green curve, trend by week and month with its comparison table, and where to act by team; a repository's migration attempts unfolding; and a repository's Actions workflows with their status](docs/dashboard.gif)
 
 ## Usage
 
@@ -238,20 +238,22 @@ the fastest repositories of a new batch cannot flatter it.
 ### Reading the Onboarding tab
 
 The tab opens with a short summary in plain sentences — how many made it in
-time, how long half of them take against the window, and whether the latest
-period is better or worse than the one before — followed by five numbered
-sections, each answering one question:
+time, how long half of them take against the window, and whether repositories
+migrated in the latest month are doing better or worse than the month before —
+followed by five numbered sections, each answering one question:
 
 1. **Where things stand** — the on-time rate, and one bar of every repository
    split by whether its window has closed, so the rate is visibly the on-time
    share of the closed group.
 2. **How long it takes** — the share of repositories fully green at each day
-   after their own migration, marked at a week and 30 days, with the day by
-   which half are fully green.
+   after their own migration, marked at a week, 30 days, and the window, with
+   the day by which half are fully green.
 3. **Is it getting better?** — of the repositories migrated in each week (or
    month, or quarter), the share fully green within a week, 30 days, and the
    window. The first week is known soonest, so a change in tooling shows there
-   first. **Compare periods side by side** opens the same figures as a table.
+   first. The table beneath opens the same figures for the same weeks, months,
+   or quarters, with the change against the period before; past six periods,
+   the oldest are combined into **Earlier**.
 4. **Where to act** — status and median days to fully green per team,
    organization, or source. Selecting a bar filters the dashboard.
 5. **Keeping up** — repositories migrated against repositories becoming fully
